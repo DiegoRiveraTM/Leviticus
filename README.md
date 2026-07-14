@@ -1,7 +1,5 @@
 # Levitico
 
-A minimalist desktop IDE with a space-inspired glassmorphism aesthetic, built with Electron, React, and Monaco.
-
 > **Note**: This project was created for **personal use** and its code was **generated 100% with AI**. It doesn't aim to compete with any professional editor — it's an experiment in how far you can get building a real tool with AI alone.
 
 ## Features
@@ -68,7 +66,9 @@ my-ide/
 
 ## License
 
-Personal project, no formal license. Use, copy, or modify it at your own risk.
+[MIT](LICENSE) — free to use, copy, and modify. Provided "as is", without warranty of any kind.
+
+> **Heads up when installing**: the installer is not code-signed, so Windows SmartScreen will show an "unknown publisher" warning. Click "More info" → "Run anyway". This is normal for independent open-source projects.
 
 ---
 

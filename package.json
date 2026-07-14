@@ -2,6 +2,9 @@
   "name": "my-ide",
   "private": true,
   "version": "0.2.0",
+  "description": "Levitico",
+  "author": "Diego Rivera",
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
