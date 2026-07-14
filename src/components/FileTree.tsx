@@ -18,6 +18,37 @@ const STATUS_CLASS: Record<string, string> = {
   D: "git-deleted",
 };
 
+// color del icono según el tipo de archivo
+const EXT_COLORS: Record<string, string> = {
+  ts: "#4a9eff", tsx: "#4a9eff", mts: "#4a9eff", cts: "#4a9eff",
+  js: "#e8d44d", jsx: "#e8d44d", mjs: "#e8d44d", cjs: "#e8d44d",
+  py: "#5ba0d0", pyw: "#5ba0d0",
+  html: "#e5734f", htm: "#e5734f",
+  css: "#9d7bff", scss: "#e463a8", sass: "#e463a8", less: "#9d7bff",
+  json: "#e8d44d", jsonc: "#e8d44d",
+  md: "#8ec2ff", mdx: "#8ec2ff",
+  yml: "#b18cff", yaml: "#b18cff", toml: "#b18cff", ini: "#b18cff",
+  java: "#e88f4d", kt: "#b18cff", scala: "#e0524f",
+  c: "#7aa2f7", h: "#7aa2f7", cpp: "#7aa2f7", cc: "#7aa2f7", hpp: "#7aa2f7",
+  cs: "#9b7bff", go: "#4dc9d8", rs: "#e0805c",
+  php: "#8892bf", rb: "#e0524f",
+  vue: "#42b883", svelte: "#ff5d3e", astro: "#ff7d54",
+  sh: "#7fd88f", bash: "#7fd88f", ps1: "#7fd88f", psm1: "#7fd88f",
+  bat: "#7fd88f", cmd: "#7fd88f",
+  sql: "#e8a44d",
+  png: "#d29ee8", jpg: "#d29ee8", jpeg: "#d29ee8", gif: "#d29ee8",
+  svg: "#d29ee8", webp: "#d29ee8", ico: "#d29ee8",
+  env: "#e3b341",
+  tf: "#8c6fe8", tfvars: "#8c6fe8",
+};
+
+function iconColor(fileName: string): string {
+  const lower = fileName.toLowerCase();
+  if (lower === "dockerfile") return "#4dc9d8";
+  const ext = lower.includes(".") ? lower.split(".").pop()! : "";
+  return EXT_COLORS[ext] ?? "rgba(230, 240, 255, 0.35)";
+}
+
 function parentOf(p: string) {
   return p.replace(/[\\/][^\\/]+$/, "");
 }
@@ -59,7 +90,7 @@ function FolderIcon({ open }: { open: boolean }) {
   );
 }
 
-function FileIcon() {
+function FileIcon({ name }: { name?: string }) {
   return (
     <svg
       className="ft-icon"
@@ -67,8 +98,8 @@ function FileIcon() {
       height="13"
       viewBox="0 0 11 13"
       fill="none"
-      stroke="currentColor"
-      strokeWidth="1"
+      stroke={name ? iconColor(name) : "currentColor"}
+      strokeWidth="1.2"
       strokeLinejoin="round"
     >
       <path d="M1.5 1.5h5L9.5 4.5v7h-8z" />
@@ -85,23 +116,30 @@ interface TreeNodeProps {
   setActiveFolder: (path: string) => void;
   onFileOpen: (path: string) => void;
   onContext: (entry: FileEntry, x: number, y: number) => void;
+  onMove: (src: string, targetDir: string) => void;
+  dropTarget: string | null;
+  setDropTarget: (path: string | null) => void;
   statuses: Record<string, string>;
 }
 
-function TreeNode({
-  entry,
-  depth,
-  version,
-  activeFolder,
-  setActiveFolder,
-  onFileOpen,
-  onContext,
-  statuses,
-}: TreeNodeProps) {
+function TreeNode(props: TreeNodeProps) {
+  const {
+    entry,
+    depth,
+    version,
+    activeFolder,
+    setActiveFolder,
+    onFileOpen,
+    onContext,
+    onMove,
+    dropTarget,
+    setDropTarget,
+    statuses,
+  } = props;
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
 
-  // cuando algo cambió en el disco (crear/renombrar/borrar) se re-lee
+  // cuando algo cambió en el disco (crear/renombrar/borrar/mover) se re-lee
   // el contenido de las carpetas expandidas sin perder la expansión
   useEffect(() => {
     if (expanded) void window.api.readDir(entry.path).then(setChildren);
@@ -127,6 +165,12 @@ function TreeNode({
     onContext(entry, e.clientX, e.clientY);
   }
 
+  function handleDragStart(e: React.DragEvent) {
+    e.stopPropagation();
+    e.dataTransfer.setData("text/lev-path", entry.path);
+    e.dataTransfer.effectAllowed = "move";
+  }
+
   if (entry.isDirectory) {
     const isActive = activeFolder === entry.path;
     const prefix = entry.path + "\\";
@@ -134,10 +178,29 @@ function TreeNode({
     return (
       <>
         <div
-          className={`ft-folder ${isActive ? "active" : ""}`}
+          className={`ft-folder ${isActive ? "active" : ""} ${dropTarget === entry.path ? "drop" : ""}`}
           style={{ paddingLeft: 8 + depth * 12 }}
           onClick={toggle}
           onContextMenu={handleContext}
+          draggable
+          onDragStart={handleDragStart}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("text/lev-path")) {
+              e.preventDefault();
+              e.stopPropagation();
+              setDropTarget(entry.path);
+            }
+          }}
+          onDragLeave={() => {
+            if (dropTarget === entry.path) setDropTarget(null);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            setDropTarget(null);
+            const src = e.dataTransfer.getData("text/lev-path");
+            if (src) onMove(src, entry.path);
+          }}
         >
           <ChevronIcon open={expanded} />
           <FolderIcon open={expanded} />
@@ -149,17 +212,7 @@ function TreeNode({
         </div>
         {expanded &&
           children.map((child) => (
-            <TreeNode
-              key={child.path}
-              entry={child}
-              depth={depth + 1}
-              version={version}
-              activeFolder={activeFolder}
-              setActiveFolder={setActiveFolder}
-              onFileOpen={onFileOpen}
-              onContext={onContext}
-              statuses={statuses}
-            />
+            <TreeNode key={child.path} {...props} entry={child} depth={depth + 1} />
           ))}
       </>
     );
@@ -173,8 +226,10 @@ function TreeNode({
       style={{ paddingLeft: 22 + depth * 12 }}
       onClick={toggle}
       onContextMenu={handleContext}
+      draggable
+      onDragStart={handleDragStart}
     >
-      <FileIcon />
+      <FileIcon name={entry.name} />
       <span className={`ft-name ${statusClass}`}>{entry.name}</span>
       {status && <span className={`ft-badge ${statusClass}`}>{status}</span>}
     </div>
@@ -187,6 +242,7 @@ type EditState =
   | null;
 
 interface Props {
+  initialRoot?: string | null;
   onFileOpen: (path: string) => void;
   onFolderOpen?: (path: string) => void;
   onFolderClose?: () => void;
@@ -196,6 +252,7 @@ interface Props {
 }
 
 export default function FileTree({
+  initialRoot,
   onFileOpen,
   onFolderOpen,
   onFolderClose,
@@ -207,6 +264,7 @@ export default function FileTree({
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{
     x: number;
     y: number;
@@ -214,6 +272,21 @@ export default function FileTree({
   } | null>(null);
   const [edit, setEdit] = useState<EditState>(null);
   const [editName, setEditName] = useState("");
+
+  // restaurar el proyecto de la sesión anterior
+  useEffect(() => {
+    if (!initialRoot || rootPath) return;
+    void window.api
+      .readDir(initialRoot)
+      .then((contents) => {
+        setRootPath(initialRoot);
+        setEntries(contents);
+      })
+      .catch(() => {
+        /* la carpeta ya no existe */
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialRoot]);
 
   async function openFolder() {
     const folder = await window.api.openFolder();
@@ -252,6 +325,19 @@ export default function FileTree({
   function bump() {
     setVersion((v) => v + 1);
     onFsChange?.();
+  }
+
+  // mover con drag & drop
+  async function moveEntry(src: string, targetDir: string) {
+    if (!src || src === targetDir) return;
+    if (targetDir === src || targetDir.startsWith(src + "\\")) return; // dentro de sí misma
+    if (parentOf(src) === targetDir) return; // ya está ahí
+    const dest = targetDir + "\\" + lastSegment(src);
+    const ok = await window.api.renamePath(src, dest);
+    if (ok) {
+      onEntryRemoved?.(src);
+      bump();
+    }
   }
 
   // carpeta destino: la del clic derecho, el padre si fue un archivo,
@@ -424,8 +510,17 @@ export default function FileTree({
             e.preventDefault();
             setCtxMenu({ x: e.clientX, y: e.clientY, entry: null });
           }}
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("text/lev-path")) e.preventDefault();
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDropTarget(null);
+            const src = e.dataTransfer.getData("text/lev-path");
+            if (src && rootPath) void moveEntry(src, rootPath);
+          }}
         >
-          {edit && (
+          {edit && edit.mode !== "create-root" && (
             <div className="ft-edit-row">
               {edit.mode === "create-dir" ? <FolderIcon open={false} /> : <FileIcon />}
               <input
@@ -456,6 +551,9 @@ export default function FileTree({
               setActiveFolder={setActiveFolder}
               onFileOpen={onFileOpen}
               onContext={(en, x, y) => setCtxMenu({ x, y, entry: en })}
+              onMove={(src, dir) => void moveEntry(src, dir)}
+              dropTarget={dropTarget}
+              setDropTarget={setDropTarget}
               statuses={statuses}
             />
           ))}
@@ -468,7 +566,7 @@ export default function FileTree({
             className="ctx-menu"
             style={{
               left: Math.min(ctxMenu.x, window.innerWidth - 190),
-              top: Math.min(ctxMenu.y, window.innerHeight - 150),
+              top: Math.min(ctxMenu.y, window.innerHeight - 170),
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ComponentProps } from "react";
 import MonacoEditor, { loader } from "@monaco-editor/react";
 import { getFileLanguage } from "../languages";
 
@@ -65,12 +65,17 @@ loader.init().then((m) => {
   })();
 });
 
+export type MonacoEditorInstance = Parameters<
+  NonNullable<ComponentProps<typeof MonacoEditor>["onMount"]>
+>[0];
+
 interface Props {
   filePath: string | null;
   content: string | null;
   onChange: (value: string) => void;
   onSave: () => void;
   onCursorChange: (line: number, column: number) => void;
+  onReady?: (editor: MonacoEditorInstance) => void;
 }
 
 export default function Editor({
@@ -79,6 +84,7 @@ export default function Editor({
   onChange,
   onSave,
   onCursorChange,
+  onReady,
 }: Props) {
   // refs para que los comandos registrados en onMount siempre vean la versión actual
   const onSaveRef = useRef(onSave);
@@ -111,6 +117,7 @@ export default function Editor({
         editor.onDidChangeCursorPosition((e) => {
           onCursorRef.current(e.position.lineNumber, e.position.column);
         });
+        onReady?.(editor);
       }}
       options={{
         fontSize: 13.5,

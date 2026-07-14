@@ -6,6 +6,9 @@ declare global {
       winMinimize: () => void
       winMaximize: () => void
       winClose: () => void
+      winFullscreen: () => void
+      confirmClose: () => void
+      onCloseRequest: (cb: () => void) => () => void
 
       openFolder: () => Promise<string | null>
       readDir: (path: string) => Promise<{
@@ -14,19 +17,37 @@ declare global {
         path: string
       }[]>
       readFile: (path: string) => Promise<string>
+      readFileBase64: (path: string) => Promise<string>
       writeFile: (path: string, content: string) => Promise<boolean>
       createFile: (path: string) => Promise<boolean>
       createDir: (path: string) => Promise<boolean>
       renamePath: (oldPath: string, newPath: string) => Promise<boolean>
       deletePath: (path: string) => Promise<boolean>
+      listFiles: (root: string) => Promise<string[]>
 
-      termRun: (command: string) => Promise<{ cwd: string; done: boolean; output?: string }>
-      termStdin: (data: string) => Promise<void>
-      termKill: () => Promise<void>
-      termGetCwd: () => Promise<string>
-      termSetCwd: (dir: string) => Promise<string>
-      onTermData: (cb: (data: string) => void) => () => void
-      onTermExit: (cb: (code: number, cwd: string) => void) => () => void
+      searchInFiles: (
+        root: string,
+        query: string,
+      ) => Promise<{ file: string; line: number; text: string }[]>
+      searchReplace: (
+        root: string,
+        query: string,
+        replacement: string,
+      ) => Promise<number>
+
+      termRun: (
+        id: number,
+        command: string,
+      ) => Promise<{ cwd: string; done: boolean; output?: string }>
+      termStdin: (id: number, data: string) => Promise<void>
+      termKill: (id: number) => Promise<void>
+      termDispose: (id: number) => Promise<void>
+      termGetCwd: (id: number) => Promise<string>
+      termSetCwd: (id: number, dir: string) => Promise<string>
+      onTermData: (cb: (id: number, data: string) => void) => () => void
+      onTermExit: (
+        cb: (id: number, code: number, cwd: string) => void,
+      ) => () => void
 
       gitInfo: (root: string) => Promise<{
         installed: boolean
@@ -37,6 +58,7 @@ declare global {
       }>
       gitStatus: (root: string) => Promise<Record<string, string>>
       gitBranches: (root: string) => Promise<string[]>
+      gitLog: (root: string) => Promise<{ hash: string; msg: string }[]>
       gitScanSensitive: (
         root: string,
         files: string[],

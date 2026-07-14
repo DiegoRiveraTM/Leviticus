@@ -1,0 +1,152 @@
+.intro {
+    position: fixed;
+    inset: 0;
+    z-index: 500;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    background: radial-gradient(120% 100% at 50% 30%,
+            rgba(2, 4, 12, 0.55) 0%,
+            rgba(2, 4, 12, 0.88) 100%);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    opacity: 1;
+    transition: opacity 0.7s cubic-bezier(0.25, 1, 0.5, 1);
+    user-select: none;
+}
+
+.intro.leaving {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.intro.leaving .intro-inner {
+    transform: scale(1.06);
+}
+
+/* anillo orbital brillante detrás del título */
+.intro-ring {
+    position: absolute;
+    width: 560px;
+    height: 560px;
+    border-radius: 50%;
+    border: 1px solid rgba(10, 132, 255, 0.18);
+    box-shadow:
+        0 0 80px rgba(10, 132, 255, 0.12),
+        inset 0 0 80px rgba(10, 132, 255, 0.06);
+    animation: intro-spin 26s linear infinite;
+}
+
+.intro-ring::before {
+    content: '';
+    position: absolute;
+    top: -4px;
+    left: 50%;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #8ec2ff;
+    box-shadow: 0 0 16px 4px rgba(10, 132, 255, 0.8);
+}
+
+@keyframes intro-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+.intro-inner {
+    position: relative;
+    text-align: center;
+    transition: transform 0.7s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.intro-eyebrow {
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.55em;
+    color: rgba(142, 194, 255, 0.55);
+    margin-bottom: 18px;
+    animation: intro-fade 1.2s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.intro-title {
+    font-size: clamp(48px, 9vw, 96px);
+    font-weight: 700;
+    letter-spacing: 0.28em;
+    margin-right: -0.28em;
+    background: linear-gradient(180deg, #ffffff 0%, #b8d4ff 55%, #4a8cff 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    text-shadow: 0 0 60px rgba(10, 132, 255, 0.35);
+    animation: intro-fade 1.2s 0.15s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+.intro-shimmer {
+    height: 1px;
+    width: min(420px, 60vw);
+    margin: 22px auto 26px;
+    background: linear-gradient(90deg,
+            transparent 0%,
+            rgba(160, 200, 255, 0.7) 50%,
+            transparent 100%);
+    background-size: 200% 100%;
+    animation: intro-shimmer 3s ease-in-out infinite,
+        intro-fade 1.2s 0.3s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes intro-shimmer {
+    0% {
+        background-position: -200% 0;
+    }
+
+    100% {
+        background-position: 200% 0;
+    }
+}
+
+.intro-cta {
+    font-size: 13px;
+    font-weight: 550;
+    color: rgba(230, 240, 255, 0.6);
+    letter-spacing: 0.12em;
+    animation: intro-pulse 2.4s ease-in-out infinite,
+        intro-fade 1.2s 0.45s cubic-bezier(0.25, 1, 0.5, 1) both;
+}
+
+@keyframes intro-pulse {
+
+    0%,
+    100% {
+        opacity: 0.45;
+    }
+
+    50% {
+        opacity: 1;
+    }
+}
+
+@keyframes intro-fade {
+    from {
+        opacity: 0;
+        transform: translateY(14px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.intro-footer {
+    position: absolute;
+    bottom: 26px;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    color: rgba(230, 240, 255, 0.22);
+}

@@ -18,10 +18,14 @@ process.env.VITE_PUBLIC = VITE_DEV_SERVER_URL
   : RENDERER_DIST
 
 let win: BrowserWindow | null = null
+let allowClose = false
 
 function createWindow() {
+  const iconPng = path.join(process.env.APP_ROOT!, 'build', 'icon.png')
   win = new BrowserWindow({
-    icon: path.join(process.env.VITE_PUBLIC!, 'electron-vite.svg'),
+    icon: fs.existsSync(iconPng)
+      ? iconPng
+      : path.join(process.env.VITE_PUBLIC!, 'electron-vite.svg'),
     width: 1440,
     height: 900,
     minWidth: 920,
@@ -47,6 +51,14 @@ function createWindow() {
     if (input.key === '0') win!.webContents.setZoomFactor(1)
   })
 
+  // el renderer decide si hay cambios sin guardar antes de cerrar
+  win.on('close', (e) => {
+    if (!allowClose && win) {
+      e.preventDefault()
+      win.webContents.send('app:close-request')
+    }
+  })
+
   if (VITE_DEV_SERVER_URL) {
     win.loadURL(VITE_DEV_SERVER_URL)
   } else {
@@ -63,6 +75,13 @@ ipcMain.on('win:maximize', () => {
   else win.maximize()
 })
 ipcMain.on('win:close', () => win?.close())
+ipcMain.on('win:fullscreen', () => {
+  if (win) win.setFullScreen(!win.isFullScreen())
+})
+ipcMain.on('app:confirm-close', () => {
+  allowClose = true
+  win?.close()
+})
 
 // ---------- File system ----------
 
@@ -89,6 +108,16 @@ ipcMain.handle('fs:readDir', async (_, folderPath: string) => {
 
 ipcMain.handle('fs:readFile', async (_, filePath: string) => {
   return fs.readFileSync(filePath, 'utf-8')
+})
+
+ipcMain.handle('fs:readFileBase64', async (_, filePath: string) => {
+  const ext = path.extname(filePath).slice(1).toLowerCase()
+  const mime =
+    ext === 'svg' ? 'image/svg+xml'
+    : ext === 'jpg' ? 'image/jpeg'
+    : ext === 'ico' ? 'image/x-icon'
+    : `image/${ext}`
+  return `data:${mime};base64,${fs.readFileSync(filePath).toString('base64')}`
 })
 
 ipcMain.handle('fs:writeFile', async (_, filePath: string, content: string) => {
@@ -125,69 +154,179 @@ ipcMain.handle('fs:delete', async (_, target: string) => {
   }
 })
 
-// ---------- Terminal ----------
-// Sin node-pty: mantenemos el cwd en el proceso principal, interceptamos `cd`
-// y ejecutamos cada comando con PowerShell transmitiendo stdout/stderr.
+// ---------- Listado y búsqueda global ----------
 
-let termCwd = os.homedir()
-let termProc: ChildProcess | null = null
+const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'dist-electron', 'dist-ssr', 'release',
+  'build', 'out', '.next', '.nuxt', 'coverage', 'target', '__pycache__',
+  '.venv', 'venv', '.idea', '.vscode', 'bin', 'obj',
+])
 
-ipcMain.handle('term:getCwd', () => termCwd)
+function walkFiles(root: string, limit = 8000): string[] {
+  const found: string[] = []
+  const stack = [root]
+  while (stack.length && found.length < limit) {
+    const dir = stack.pop()!
+    let entries: fs.Dirent[]
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name)
+      if (entry.isDirectory()) {
+        if (!SKIP_DIRS.has(entry.name.toLowerCase())) stack.push(full)
+      } else if (found.length < limit) {
+        found.push(full)
+      }
+    }
+  }
+  return found
+}
 
-ipcMain.handle('term:setCwd', (_, dir: string) => {
-  const target = dir === '~' ? os.homedir() : dir
-  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) termCwd = target
-  return termCwd
+ipcMain.handle('fs:listFiles', (_, root: string) =>
+  walkFiles(root).map(f => path.relative(root, f)),
+)
+
+function escapeRegExp(s: string) {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+ipcMain.handle('search:inFiles', (_, root: string, query: string) => {
+  const results: { file: string; line: number; text: string }[] = []
+  if (!query.trim()) return results
+  const q = query.toLowerCase()
+  for (const abs of walkFiles(root)) {
+    if (results.length >= 500) break
+    try {
+      if (fs.statSync(abs).size > 1024 * 1024) continue
+      const buf = fs.readFileSync(abs)
+      if (buf.includes(0)) continue // binario
+      const lines = buf.toString('utf-8').split(/\r?\n/)
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].toLowerCase().includes(q)) {
+          results.push({
+            file: path.relative(root, abs),
+            line: i + 1,
+            text: lines[i].trim().slice(0, 200),
+          })
+          if (results.length >= 500) break
+        }
+      }
+    } catch {
+      /* ilegible: se salta */
+    }
+  }
+  return results
 })
 
-ipcMain.handle('term:run', (event, command: string) => {
+ipcMain.handle('search:replace', (_, root: string, query: string, replacement: string) => {
+  if (!query.trim()) return 0
+  const re = new RegExp(escapeRegExp(query), 'gi')
+  let count = 0
+  for (const abs of walkFiles(root)) {
+    try {
+      if (fs.statSync(abs).size > 1024 * 1024) continue
+      const buf = fs.readFileSync(abs)
+      if (buf.includes(0)) continue
+      const text = buf.toString('utf-8')
+      const matches = text.match(re)
+      if (!matches) continue
+      fs.writeFileSync(abs, text.replace(re, replacement), 'utf-8')
+      count += matches.length
+    } catch {
+      /* ilegible: se salta */
+    }
+  }
+  return count
+})
+
+// ---------- Terminal (multi-sesión) ----------
+// Sin node-pty: cada sesión guarda su cwd, interceptamos `cd` y ejecutamos
+// cada comando con PowerShell transmitiendo stdout/stderr.
+
+interface TermSession {
+  cwd: string
+  proc: ChildProcess | null
+}
+
+const termSessions = new Map<number, TermSession>()
+
+function getSession(id: number): TermSession {
+  let s = termSessions.get(id)
+  if (!s) {
+    s = { cwd: os.homedir(), proc: null }
+    termSessions.set(id, s)
+  }
+  return s
+}
+
+ipcMain.handle('term:getCwd', (_, id: number) => getSession(id).cwd)
+
+ipcMain.handle('term:setCwd', (_, id: number, dir: string) => {
+  const s = getSession(id)
+  const target = dir === '~' ? os.homedir() : dir
+  if (fs.existsSync(target) && fs.statSync(target).isDirectory()) s.cwd = target
+  return s.cwd
+})
+
+ipcMain.handle('term:run', (event, id: number, command: string) => {
+  const s = getSession(id)
   const trimmed = command.trim()
-  if (!trimmed) return { cwd: termCwd, done: true }
+  if (!trimmed) return { cwd: s.cwd, done: true }
 
   // `cd` se maneja aquí para que la navegación persista entre comandos
   const cdMatch = /^cd(?:\s+(.*))?$/i.exec(trimmed)
   if (cdMatch && !/[;&|]/.test(trimmed)) {
     const raw = (cdMatch[1] ?? '').trim().replace(/^["']|["']$/g, '')
-    if (!raw) return { cwd: termCwd, done: true, output: termCwd + '\r\n' }
-    const target = raw === '~' ? os.homedir() : path.resolve(termCwd, raw)
+    if (!raw) return { cwd: s.cwd, done: true, output: s.cwd + '\r\n' }
+    const target = raw === '~' ? os.homedir() : path.resolve(s.cwd, raw)
     if (fs.existsSync(target) && fs.statSync(target).isDirectory()) {
-      termCwd = target
-      return { cwd: termCwd, done: true }
+      s.cwd = target
+      return { cwd: s.cwd, done: true }
     }
-    return { cwd: termCwd, done: true, output: `cd: no existe el directorio: ${raw}\r\n` }
+    return { cwd: s.cwd, done: true, output: `cd: no existe el directorio: ${raw}\r\n` }
   }
 
-  if (termProc) {
-    return { cwd: termCwd, done: true, output: 'Ya hay un proceso en ejecución (Ctrl+C para detenerlo)\r\n' }
+  if (s.proc) {
+    return { cwd: s.cwd, done: true, output: 'Ya hay un proceso en ejecución (Ctrl+C para detenerlo)\r\n' }
   }
 
   const wc = event.sender
-  termProc = spawn('powershell.exe', [
+  s.proc = spawn('powershell.exe', [
     '-NoLogo', '-NoProfile', '-Command',
     `[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; ${trimmed}`,
-  ], { cwd: termCwd })
+  ], { cwd: s.cwd })
 
-  termProc.stdout!.setEncoding('utf8')
-  termProc.stderr!.setEncoding('utf8')
-  termProc.stdout!.on('data', d => wc.send('term:data', String(d)))
-  termProc.stderr!.on('data', d => wc.send('term:data', String(d)))
-  termProc.on('error', err => wc.send('term:data', `${err.message}\r\n`))
-  termProc.on('close', code => {
-    termProc = null
-    if (!wc.isDestroyed()) wc.send('term:exit', code ?? 0, termCwd)
+  s.proc.stdout!.setEncoding('utf8')
+  s.proc.stderr!.setEncoding('utf8')
+  s.proc.stdout!.on('data', d => wc.send('term:data', id, String(d)))
+  s.proc.stderr!.on('data', d => wc.send('term:data', id, String(d)))
+  s.proc.on('error', err => wc.send('term:data', id, `${err.message}\r\n`))
+  s.proc.on('close', code => {
+    s.proc = null
+    if (!wc.isDestroyed()) wc.send('term:exit', id, code ?? 0, s.cwd)
   })
-  return { cwd: termCwd, done: false }
+  return { cwd: s.cwd, done: false }
 })
 
-ipcMain.handle('term:stdin', (_, data: string) => {
-  termProc?.stdin?.write(data)
+ipcMain.handle('term:stdin', (_, id: number, data: string) => {
+  getSession(id).proc?.stdin?.write(data)
 })
 
-ipcMain.handle('term:kill', () => {
-  if (termProc?.pid) {
+ipcMain.handle('term:kill', (_, id: number) => {
+  const s = getSession(id)
+  if (s.proc?.pid) {
     // taskkill con /t termina también los procesos hijos en Windows
-    spawnSync('taskkill', ['/pid', String(termProc.pid), '/t', '/f'])
+    spawnSync('taskkill', ['/pid', String(s.proc.pid), '/t', '/f'])
   }
+})
+
+ipcMain.handle('term:dispose', (_, id: number) => {
+  const s = termSessions.get(id)
+  if (s?.proc?.pid) spawnSync('taskkill', ['/pid', String(s.proc.pid), '/t', '/f'])
+  termSessions.delete(id)
 })
 
 // ---------- Git ----------
@@ -224,6 +363,15 @@ ipcMain.handle('git:branches', (_, root: string) => {
   const res = runGit(['branch', '--list', '--format=%(refname:short)'], root)
   if (!res.ok) return []
   return res.out.split('\n').map(b => b.trim()).filter(Boolean)
+})
+
+ipcMain.handle('git:log', (_, root: string) => {
+  const res = runGit(['log', '--oneline', '-25'], root)
+  if (!res.ok) return []
+  return res.out.split('\n').filter(Boolean).map(line => {
+    const i = line.indexOf(' ')
+    return { hash: line.slice(0, i), msg: line.slice(i + 1) }
+  })
 })
 
 // ---- escáner de información sensible antes de un commit ----

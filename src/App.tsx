@@ -1,9 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import FileTree from "./components/FileTree";
-import Editor from "./components/Editor";
+import Editor, { type MonacoEditorInstance } from "./components/Editor";
 import StatusExtras from "./components/StatusExtras";
-import { getFileLanguage } from "./languages";
 import Terminal, { TerminalHandle } from "./components/Terminal";
+import IntroScreen from "./components/IntroScreen";
+import QuickOpen from "./components/QuickOpen";
+import SearchPanel from "./components/SearchPanel";
+import DevOpsPanel from "./components/DevOpsPanel";
+import { MarkdownView, ImageView } from "./components/Preview";
+import { getFileLanguage } from "./languages";
 import "./App.css";
 
 interface Runner {
@@ -88,12 +93,17 @@ interface MissingTool {
   url: string;
 }
 
+const IMAGE_RE = /\.(png|jpe?g|gif|webp|bmp|ico|svg)$/i;
+const SESSION_KEY = "lv-session";
+
 function App() {
+  const [intro, setIntro] = useState(true);
   const [openFiles, setOpenFiles] = useState<string[]>([]);
   const [activeFile, setActiveFile] = useState<string | null>(null);
   const [contents, setContents] = useState<Record<string, string>>({});
   const [dirty, setDirty] = useState<Record<string, boolean>>({});
   const [rootPath, setRootPath] = useState<string | null>(null);
+  const [restoredRoot, setRestoredRoot] = useState<string | null>(null);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
   const [missingTool, setMissingTool] = useState<MissingTool | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -105,6 +115,17 @@ function App() {
     () => Number(localStorage.getItem("lv-term-h")) || 216,
   );
   const [dragging, setDragging] = useState<"v" | "h" | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [sidebarView, setSidebarView] = useState<"files" | "search">("files");
+  const [quickOpen, setQuickOpen] = useState(false);
+  const [devops, setDevops] = useState(false);
+  const [autoSave, setAutoSave] = useState(
+    () => localStorage.getItem("lv-autosave") === "1",
+  );
+  const [mdPreview, setMdPreview] = useState(false);
+  const [closeConfirm, setCloseConfirm] = useState(false);
+
+  // git
   const [gitStatuses, setGitStatuses] = useState<Record<string, string>>({});
   const [gitPanel, setGitPanel] = useState(false);
   const [gitInfo, setGitInfo] = useState<{
@@ -120,18 +141,79 @@ function App() {
   const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
   const [newBranch, setNewBranch] = useState("");
   const [branchMode, setBranchMode] = useState(false);
+  const [gitLogList, setGitLogList] = useState<{ hash: string; msg: string }[] | null>(null);
   const [sensWarning, setSensWarning] = useState<
     { file: string; reason: string }[] | null
   >(null);
-  const terminalRef = useRef<TerminalHandle>(null);
 
+  // terminales
+  const [termIds, setTermIds] = useState<number[]>([1]);
+  const [activeTerm, setActiveTerm] = useState(1);
+  const nextTermIdRef = useRef(2);
+  const termRefs = useRef(new Map<number, TerminalHandle>());
+
+  const editorRef = useRef<MonacoEditorInstance | null>(null);
   const activeRef = useRef(activeFile);
   const contentsRef = useRef(contents);
   const rootRef = useRef(rootPath);
+  const openFilesRef = useRef(openFiles);
+  const dirtyRef = useRef(dirty);
+  const autoSaveRef = useRef(autoSave);
   activeRef.current = activeFile;
   contentsRef.current = contents;
   rootRef.current = rootPath;
+  openFilesRef.current = openFiles;
+  dirtyRef.current = dirty;
+  autoSaveRef.current = autoSave;
   const openedUrlsRef = useRef(new Set<string>());
+  const autosaveTimerRef = useRef<number>();
+
+  // ---------- sesión persistente ----------
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SESSION_KEY);
+      if (!raw) return;
+      const session = JSON.parse(raw) as {
+        root: string | null;
+        files: string[];
+        active: string | null;
+      };
+      if (session.root) {
+        setRestoredRoot(session.root);
+        setRootPath(session.root);
+      }
+      void (async () => {
+        for (const file of session.files ?? []) {
+          try {
+            const content = IMAGE_RE.test(file)
+              ? ""
+              : await window.api.readFile(file);
+            setContents((prev) => ({ ...prev, [file]: content }));
+            setOpenFiles((prev) => (prev.includes(file) ? prev : [...prev, file]));
+          } catch {
+            /* el archivo ya no existe */
+          }
+        }
+        if (session.active) setActiveFile(session.active);
+      })();
+    } catch {
+      /* sesión corrupta: se ignora */
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(
+      SESSION_KEY,
+      JSON.stringify({ root: rootPath, files: openFiles, active: activeFile }),
+    );
+  }, [rootPath, openFiles, activeFile]);
+
+  useEffect(() => {
+    localStorage.setItem("lv-autosave", autoSave ? "1" : "0");
+  }, [autoSave]);
+
+  // ---------- git status ----------
 
   async function refreshGitStatuses() {
     const root = rootRef.current;
@@ -146,7 +228,6 @@ function App() {
     }
   }
 
-  // re-consultar git al abrir proyecto y al terminar cualquier comando de terminal
   useEffect(() => {
     void refreshGitStatuses();
   }, [rootPath]);
@@ -156,13 +237,35 @@ function App() {
     return off;
   }, []);
 
+  // ---------- archivos ----------
+
   async function handleFileOpen(path: string) {
     if (!(path in contentsRef.current)) {
-      const content = await window.api.readFile(path);
+      let content = "";
+      if (!IMAGE_RE.test(path)) {
+        try {
+          content = await window.api.readFile(path);
+        } catch {
+          return;
+        }
+      }
       setContents((prev) => ({ ...prev, [path]: content }));
     }
     setOpenFiles((prev) => (prev.includes(path) ? prev : [...prev, path]));
     setActiveFile(path);
+    setMdPreview(false);
+  }
+
+  // abrir y saltar a una línea (resultados de búsqueda)
+  async function openFileAt(path: string, line: number) {
+    await handleFileOpen(path);
+    setTimeout(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      editor.revealLineInCenter(line);
+      editor.setPosition({ lineNumber: line, column: 1 });
+      editor.focus();
+    }, 180);
   }
 
   function closeTab(path: string) {
@@ -189,6 +292,7 @@ function App() {
 
   function handleCloseProject() {
     setRootPath(null);
+    setRestoredRoot(null);
     setOpenFiles([]);
     setActiveFile(null);
     setContents({});
@@ -196,15 +300,202 @@ function App() {
     setCursor({ line: 1, col: 1 });
   }
 
-  async function saveFile(): Promise<boolean> {
-    const path = activeRef.current;
-    if (!path) return false;
+  async function saveFilePath(path: string): Promise<boolean> {
     const content = contentsRef.current[path];
-    if (content === undefined) return false;
+    if (content === undefined || IMAGE_RE.test(path)) return false;
     await window.api.writeFile(path, content);
     setDirty((prev) => ({ ...prev, [path]: false }));
     void refreshGitStatuses();
     return true;
+  }
+
+  async function saveFile(): Promise<boolean> {
+    const path = activeRef.current;
+    if (!path) return false;
+    return saveFilePath(path);
+  }
+
+  async function saveAll() {
+    for (const path of openFilesRef.current) {
+      if (dirtyRef.current[path]) await saveFilePath(path);
+    }
+  }
+
+  // tras un reemplazo global, recargar los archivos abiertos desde disco
+  async function reloadOpenFiles() {
+    for (const path of openFilesRef.current) {
+      if (IMAGE_RE.test(path)) continue;
+      try {
+        const content = await window.api.readFile(path);
+        setContents((prev) => ({ ...prev, [path]: content }));
+        setDirty((prev) => ({ ...prev, [path]: false }));
+      } catch {
+        /* borrado entre tanto */
+      }
+    }
+    void refreshGitStatuses();
+  }
+
+  // ---------- atajos globales ----------
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === "F11") {
+        e.preventDefault();
+        window.api.winFullscreen();
+        return;
+      }
+      if (!e.ctrlKey || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "s" && !e.shiftKey) {
+        e.preventDefault();
+        void saveFile();
+      } else if (key === "s" && e.shiftKey) {
+        e.preventDefault();
+        void saveAll();
+      } else if (key === "w" && !e.shiftKey) {
+        e.preventDefault();
+        if (activeRef.current) closeTab(activeRef.current);
+      } else if (key === "p" && !e.shiftKey) {
+        e.preventDefault();
+        setQuickOpen(true);
+      } else if (key === "b" && !e.shiftKey) {
+        e.preventDefault();
+        setSidebarVisible((v) => !v);
+      } else if (key === "f" && e.shiftKey) {
+        e.preventDefault();
+        setSidebarVisible(true);
+        setSidebarView("search");
+        setTimeout(
+          () => document.getElementById("global-search-input")?.focus(),
+          50,
+        );
+      } else if (e.key === "Tab") {
+        e.preventDefault();
+        const files = openFilesRef.current;
+        const current = activeRef.current;
+        if (files.length > 1 && current) {
+          const idx = files.indexOf(current);
+          setActiveFile(files[(idx + 1) % files.length]);
+        }
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ---------- cierre con cambios sin guardar ----------
+
+  useEffect(() => {
+    const off = window.api.onCloseRequest(() => {
+      const hasDirty = openFilesRef.current.some((f) => dirtyRef.current[f]);
+      if (hasDirty) setCloseConfirm(true);
+      else window.api.confirmClose();
+    });
+    return off;
+  }, []);
+
+  // ---------- vista previa del dev server ----------
+
+  useEffect(() => {
+    const off = window.api.onTermData((_id, data) => {
+      // eslint-disable-next-line no-control-regex
+      const clean = data.replace(/\x1b\[[0-9;]*m/g, "");
+      const match = clean.match(
+        /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s"'<>]*/,
+      );
+      if (!match) return;
+      const url = match[0].replace(/[),.;\]]+$/, "");
+      setPreviewUrl(url);
+      if (!openedUrlsRef.current.has(url)) {
+        openedUrlsRef.current.add(url);
+        void window.api.openExternal(url);
+      }
+    });
+    return off;
+  }, []);
+
+  // ---------- terminales ----------
+
+  function runInActiveTerm(command: string) {
+    termRefs.current.get(activeTerm)?.runCommand(command);
+  }
+
+  function addTerm() {
+    const id = nextTermIdRef.current++;
+    setTermIds((prev) => [...prev, id]);
+    setActiveTerm(id);
+  }
+
+  function closeTerm(id: number) {
+    void window.api.termDispose(id);
+    termRefs.current.delete(id);
+    setTermIds((prev) => {
+      const next = prev.filter((t) => t !== id);
+      if (activeTerm === id && next.length) setActiveTerm(next[0]);
+      return next;
+    });
+  }
+
+  // ---------- ejecución ----------
+
+  async function handleRunFile() {
+    const file = activeRef.current;
+    if (!file) {
+      setNotice("Abre un archivo primero para poder ejecutarlo.");
+      return;
+    }
+    const { id, label } = getFileLanguage(file);
+    const runner = RUNNERS[id];
+    if (!runner) {
+      setNotice(`No hay un ejecutor configurado para ${label}.`);
+      return;
+    }
+    await saveFile();
+    const installed = await window.api.checkTool(runner.tool);
+    if (!installed) {
+      setMissingTool({ name: runner.name, url: runner.url });
+      return;
+    }
+    runInActiveTerm(runner.cmd(file));
+  }
+
+  // corre el proyecto abierto: npm install si falta node_modules
+  // y luego el script dev/start/serve del package.json
+  async function handleRunProject() {
+    if (!rootPath) {
+      setNotice("Abre la carpeta de un proyecto primero.");
+      return;
+    }
+    const entries = await window.api.readDir(rootPath);
+    const hasPkg = entries.some((e) => e.name === "package.json");
+    if (!hasPkg) {
+      setNotice(
+        "No encontré un package.json en la raíz del proyecto. Usa la terminal para correr otros tipos de proyecto.",
+      );
+      return;
+    }
+    const nodeOk = await window.api.checkTool("node");
+    if (!nodeOk) {
+      setMissingTool({ name: "Node.js", url: "https://nodejs.org/es/download" });
+      return;
+    }
+    let script: string | null = null;
+    try {
+      const pkg = JSON.parse(
+        await window.api.readFile(rootPath + "\\package.json"),
+      );
+      const scripts = pkg.scripts ?? {};
+      script = ["dev", "start", "serve", "preview"].find((s) => scripts[s]) ?? null;
+    } catch {
+      /* package.json ilegible: intentamos npm start */
+    }
+    const hasModules = entries.some((e) => e.name === "node_modules");
+    const steps: string[] = [];
+    if (!hasModules) steps.push("npm install");
+    steps.push(script ? `npm run ${script}` : "npm start");
+    runInActiveTerm(steps.join("; "));
   }
 
   // ---------- Git ----------
@@ -238,6 +529,7 @@ function App() {
     setSensWarning(null);
     setBranchMode(false);
     setNewBranch("");
+    setGitLogList(null);
     setGitInfo(info);
     setRemoteUrl(info.remote ?? "");
     setGitPanel(true);
@@ -248,7 +540,7 @@ function App() {
   function gitRun(command: string) {
     const root = rootRef.current;
     setGitPanel(false);
-    terminalRef.current?.runCommand(root ? `cd "${root}"; ${command}` : command);
+    runInActiveTerm(root ? `cd "${root}"; ${command}` : command);
   }
 
   function gitInit() {
@@ -334,103 +626,14 @@ function App() {
     gitRun(`git checkout -b "${name}"`);
   }
 
-  // atajos globales: Ctrl+S guarda, Ctrl+W cierra la pestaña activa
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      if (!e.ctrlKey || e.shiftKey || e.altKey) return;
-      const key = e.key.toLowerCase();
-      if (key === "s") {
-        e.preventDefault();
-        void saveFile();
-      } else if (key === "w") {
-        e.preventDefault();
-        if (activeRef.current) closeTab(activeRef.current);
-      }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // vigila la salida de la terminal: cuando un servidor de desarrollo
-  // imprime su URL local, la abre en el navegador para previsualizar
-  useEffect(() => {
-    const off = window.api.onTermData((data) => {
-      // eslint-disable-next-line no-control-regex
-      const clean = data.replace(/\x1b\[[0-9;]*m/g, "");
-      const match = clean.match(
-        /https?:\/\/(?:localhost|127\.0\.0\.1):\d+[^\s"'<>]*/,
-      );
-      if (!match) return;
-      const url = match[0].replace(/[),.;\]]+$/, "");
-      setPreviewUrl(url);
-      if (!openedUrlsRef.current.has(url)) {
-        openedUrlsRef.current.add(url);
-        void window.api.openExternal(url);
-      }
-    });
-    return off;
-  }, []);
-
-  async function handleRunFile() {
-    const file = activeRef.current;
-    if (!file) {
-      setNotice("Abre un archivo primero para poder ejecutarlo.");
-      return;
-    }
-    const { id, label } = getFileLanguage(file);
-    const runner = RUNNERS[id];
-    if (!runner) {
-      setNotice(`No hay un ejecutor configurado para ${label}.`);
-      return;
-    }
-    await saveFile();
-    const installed = await window.api.checkTool(runner.tool);
-    if (!installed) {
-      setMissingTool({ name: runner.name, url: runner.url });
-      return;
-    }
-    terminalRef.current?.runCommand(runner.cmd(file));
+  async function showGitLog() {
+    const root = rootRef.current;
+    if (!root) return;
+    setGitLogList(await window.api.gitLog(root));
   }
 
-  // corre el proyecto abierto: npm install si falta node_modules
-  // y luego el script dev/start/serve del package.json
-  async function handleRunProject() {
-    if (!rootPath) {
-      setNotice("Abre la carpeta de un proyecto primero.");
-      return;
-    }
-    const entries = await window.api.readDir(rootPath);
-    const hasPkg = entries.some((e) => e.name === "package.json");
-    if (!hasPkg) {
-      setNotice(
-        "No encontré un package.json en la raíz del proyecto. Usa la terminal para correr otros tipos de proyecto.",
-      );
-      return;
-    }
-    const nodeOk = await window.api.checkTool("node");
-    if (!nodeOk) {
-      setMissingTool({ name: "Node.js", url: "https://nodejs.org/es/download" });
-      return;
-    }
-    let script: string | null = null;
-    try {
-      const pkg = JSON.parse(
-        await window.api.readFile(rootPath + "\\package.json"),
-      );
-      const scripts = pkg.scripts ?? {};
-      script = ["dev", "start", "serve", "preview"].find((s) => scripts[s]) ?? null;
-    } catch {
-      /* package.json ilegible: intentamos npm start */
-    }
-    const hasModules = entries.some((e) => e.name === "node_modules");
-    const steps: string[] = [];
-    if (!hasModules) steps.push("npm install");
-    steps.push(script ? `npm run ${script}` : "npm start");
-    terminalRef.current?.runCommand(steps.join("; "));
-  }
+  // ---------- divisores arrastrables ----------
 
-  // divisores arrastrables: sidebar (vertical) y terminal (horizontal)
   function startDrag(e: React.MouseEvent, dir: "v" | "h") {
     e.preventDefault();
     setDragging(dir);
@@ -470,9 +673,13 @@ function App() {
   }
 
   const langInfo = activeFile ? getFileLanguage(activeFile) : null;
+  const isImage = activeFile ? IMAGE_RE.test(activeFile) : false;
+  const isMarkdown = langInfo?.id === "markdown";
 
   return (
     <div className="ide">
+      {intro && <IntroScreen onEnter={() => setIntro(false)} />}
+
       <div className="titlebar" onDoubleClick={() => window.api.winMaximize()}>
         <div className="titlebar-actions">
           <button
@@ -531,6 +738,28 @@ function App() {
               <path d="M3 4.7v3.6M9 6.2c0 2.2-2.8 2.4-4.5 2.5" />
             </svg>
           </button>
+          <button
+            className="tb-btn"
+            title="DevOps · Docker, CI/CD, Terraform, Kubernetes"
+            onClick={() => {
+              if (!rootPath) setNotice("Abre la carpeta de un proyecto primero.");
+              else setDevops(true);
+            }}
+          >
+            <svg
+              width="13"
+              height="13"
+              viewBox="0 0 14 14"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.2"
+              strokeLinejoin="round"
+            >
+              <path d="M7 1.5 13 4.5 7 7.5 1 4.5z" />
+              <path d="M1 7.5l6 3 6-3" opacity="0.65" />
+              <path d="M1 10.5l6 3 6-3" opacity="0.35" />
+            </svg>
+          </button>
           {previewUrl && (
             <button
               className="tb-btn preview"
@@ -553,6 +782,15 @@ function App() {
         </div>
         <div className="titlebar-drag" />
         <div className="win-controls">
+          <button
+            className="win-btn"
+            title="Pantalla completa (F11)"
+            onClick={() => window.api.winFullscreen()}
+          >
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M4 1.5H1.5V4M7 1.5h2.5V4M4 9.5H1.5V7M7 9.5h2.5V7" />
+            </svg>
+          </button>
           <button
             className="win-btn"
             title="Minimizar"
@@ -584,21 +822,62 @@ function App() {
       </div>
 
       <div className="main">
-        <div className="sidebar" style={{ width: sidebarWidth }}>
-          <FileTree
-            onFileOpen={handleFileOpen}
-            onFolderOpen={setRootPath}
-            onFolderClose={handleCloseProject}
-            onFsChange={() => void refreshGitStatuses()}
-            onEntryRemoved={closeTab}
-            statuses={gitStatuses}
-          />
-        </div>
+        {sidebarVisible && (
+          <>
+            <div className="sidebar" style={{ width: sidebarWidth }}>
+              <div className="side-switch">
+                <button
+                  className={sidebarView === "files" ? "on" : ""}
+                  title="Explorador"
+                  onClick={() => setSidebarView("files")}
+                >
+                  <svg width="13" height="12" viewBox="0 0 16 14" fill="currentColor">
+                    <path d="M1.5 3c0-.6.4-1 1-1h3.4l1.5 1.7h6.1c.6 0 1 .4 1 1v6.8c0 .6-.4 1-1 1h-11c-.6 0-1-.4-1-1z" />
+                  </svg>
+                </button>
+                <button
+                  className={sidebarView === "search" ? "on" : ""}
+                  title="Buscar en el proyecto (Ctrl+Shift+F)"
+                  onClick={() => setSidebarView("search")}
+                >
+                  <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+                    <circle cx="6" cy="6" r="4.2" />
+                    <path d="M9.2 9.2 12.5 12.5" />
+                  </svg>
+                </button>
+              </div>
+              <div
+                className="side-view"
+                style={{ display: sidebarView === "files" ? "flex" : "none" }}
+              >
+                <FileTree
+                  initialRoot={restoredRoot}
+                  onFileOpen={handleFileOpen}
+                  onFolderOpen={setRootPath}
+                  onFolderClose={handleCloseProject}
+                  onFsChange={() => void refreshGitStatuses()}
+                  onEntryRemoved={closeTab}
+                  statuses={gitStatuses}
+                />
+              </div>
+              <div
+                className="side-view"
+                style={{ display: sidebarView === "search" ? "flex" : "none" }}
+              >
+                <SearchPanel
+                  root={rootPath}
+                  onOpenAt={(p, l) => void openFileAt(p, l)}
+                  onReplaced={() => void reloadOpenFiles()}
+                />
+              </div>
+            </div>
 
-        <div
-          className={`splitter splitter-v ${dragging === "v" ? "dragging" : ""}`}
-          onMouseDown={(e) => startDrag(e, "v")}
-        />
+            <div
+              className={`splitter splitter-v ${dragging === "v" ? "dragging" : ""}`}
+              onMouseDown={(e) => startDrag(e, "v")}
+            />
+          </>
+        )}
 
         <div className="editor-area">
           <div className="tabs">
@@ -624,19 +903,47 @@ function App() {
                 </button>
               </div>
             ))}
+            {isMarkdown && (
+              <button
+                className={`md-toggle ${mdPreview ? "on" : ""}`}
+                title="Vista previa de Markdown"
+                onClick={() => setMdPreview((v) => !v)}
+              >
+                <svg width="13" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.2">
+                  <path d="M1 5c1.8-2.7 4-4 6-4s4.2 1.3 6 4c-1.8 2.7-4 4-6 4S2.8 7.7 1 5z" />
+                  <circle cx="7" cy="5" r="1.7" />
+                </svg>
+              </button>
+            )}
           </div>
-          <Editor
-            filePath={activeFile}
-            content={activeFile ? contents[activeFile] ?? null : null}
-            onChange={(value) => {
-              const path = activeRef.current;
-              if (!path) return;
-              setContents((prev) => ({ ...prev, [path]: value }));
-              setDirty((prev) => ({ ...prev, [path]: true }));
-            }}
-            onSave={() => void saveFile()}
-            onCursorChange={(line, col) => setCursor({ line, col })}
-          />
+          {isImage && activeFile ? (
+            <ImageView path={activeFile} />
+          ) : isMarkdown && mdPreview && activeFile ? (
+            <MarkdownView source={contents[activeFile] ?? ""} />
+          ) : (
+            <Editor
+              filePath={activeFile}
+              content={activeFile ? contents[activeFile] ?? null : null}
+              onChange={(value) => {
+                const path = activeRef.current;
+                if (!path) return;
+                setContents((prev) => ({ ...prev, [path]: value }));
+                setDirty((prev) => ({ ...prev, [path]: true }));
+                if (autoSaveRef.current) {
+                  window.clearTimeout(autosaveTimerRef.current);
+                  autosaveTimerRef.current = window.setTimeout(
+                    () => void saveFilePath(path),
+                    800,
+                  );
+                }
+              }}
+              onSave={() => void saveFile()}
+              onCursorChange={(line, col) => setCursor({ line, col })}
+              onReady={(editor) => {
+                editorRef.current = editor;
+              }}
+            />
+          )}
         </div>
       </div>
 
@@ -647,10 +954,48 @@ function App() {
 
       <div className="bottom" style={{ height: termHeight }}>
         <div className="panel-tabs">
-          <span className="panel-tab active">Terminal</span>
+          {termIds.map((id, i) => (
+            <span
+              key={id}
+              className={`panel-tab ${id === activeTerm ? "active" : ""}`}
+              onClick={() => setActiveTerm(id)}
+            >
+              Terminal {i + 1}
+              {termIds.length > 1 && (
+                <button
+                  className="term-close"
+                  title="Cerrar terminal"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTerm(id);
+                  }}
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          ))}
+          <button className="term-add" title="Nueva terminal" onClick={addTerm}>
+            +
+          </button>
         </div>
         <div className="terminal">
-          <Terminal ref={terminalRef} cwd={rootPath} />
+          {termIds.map((id) => (
+            <div
+              key={id}
+              className="term-slot"
+              style={{ display: id === activeTerm ? "block" : "none" }}
+            >
+              <Terminal
+                sessionId={id}
+                cwd={rootPath}
+                ref={(handle) => {
+                  if (handle) termRefs.current.set(id, handle);
+                  else termRefs.current.delete(id);
+                }}
+              />
+            </div>
+          ))}
         </div>
       </div>
 
@@ -664,9 +1009,66 @@ function App() {
         {activeFile && dirty[activeFile] && (
           <span className="status-item">● sin guardar</span>
         )}
+        <button
+          className={`auto-toggle ${autoSave ? "on" : ""}`}
+          title="Autoguardado"
+          onClick={() => setAutoSave((v) => !v)}
+        >
+          AUTO
+        </button>
         <StatusExtras />
         <span className="status-item">Levitico v0.2.0</span>
       </div>
+
+      {quickOpen && (
+        <QuickOpen
+          root={rootPath}
+          onClose={() => setQuickOpen(false)}
+          onPick={(p) => void handleFileOpen(p)}
+        />
+      )}
+
+      {devops && rootPath && (
+        <DevOpsPanel
+          root={rootPath}
+          onClose={() => setDevops(false)}
+          runInTerminal={(cmd) => runInActiveTerm(`cd "${rootPath}"; ${cmd}`)}
+          onNotice={setNotice}
+        />
+      )}
+
+      {closeConfirm && (
+        <div className="modal-overlay">
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-title">Cambios sin guardar</div>
+            <div className="modal-body">
+              Tienes archivos con cambios sin guardar. ¿Qué quieres hacer?
+            </div>
+            <div className="modal-actions">
+              <button
+                className="modal-btn primary"
+                onClick={() => {
+                  void saveAll().then(() => window.api.confirmClose());
+                }}
+              >
+                Guardar todo y salir
+              </button>
+              <button
+                className="modal-btn"
+                onClick={() => window.api.confirmClose()}
+              >
+                Salir sin guardar
+              </button>
+              <button
+                className="modal-btn"
+                onClick={() => setCloseConfirm(false)}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {missingTool && (
         <div className="modal-overlay" onClick={() => setMissingTool(null)}>
@@ -713,6 +1115,26 @@ function App() {
                   </button>
                   <button className="modal-btn" onClick={() => setGitPanel(false)}>
                     Cancelar
+                  </button>
+                </div>
+              </>
+            ) : gitLogList ? (
+              <>
+                <div className="modal-title">Historial de commits</div>
+                <div className="modal-body">
+                  <div className="git-log">
+                    {gitLogList.map((c) => (
+                      <div key={c.hash} className="git-log-item">
+                        <span className="git-hash">{c.hash}</span>
+                        <span className="git-msg">{c.msg}</span>
+                      </div>
+                    ))}
+                    {!gitLogList.length && "Sin commits todavía."}
+                  </div>
+                </div>
+                <div className="modal-actions">
+                  <button className="modal-btn" onClick={() => setGitLogList(null)}>
+                    ← Volver
                   </button>
                 </div>
               </>
@@ -784,6 +1206,20 @@ function App() {
                       onClick={() => setBranchMode((v) => !v)}
                     >
                       +
+                    </button>
+                    <button
+                      className="modal-btn mini"
+                      title="git pull"
+                      onClick={() => gitRun("git pull")}
+                    >
+                      ⇣
+                    </button>
+                    <button
+                      className="modal-btn mini"
+                      title="Historial de commits"
+                      onClick={() => void showGitLog()}
+                    >
+                      ≡
                     </button>
                   </div>
                   {branchMode && (

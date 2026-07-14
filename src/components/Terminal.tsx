@@ -14,6 +14,7 @@ export interface TerminalHandle {
 }
 
 interface Props {
+  sessionId: number;
   cwd: string | null;
 }
 
@@ -22,7 +23,7 @@ function normalize(data: string): string {
 }
 
 const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
-  { cwd },
+  { sessionId, cwd },
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -67,7 +68,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
     }
 
     runningRef.current = true;
-    const res = await window.api.termRun(cmd);
+    const res = await window.api.termRun(sessionId, cmd);
     cwdRef.current = res.cwd;
     if (res.output) term.write(normalize(res.output));
     if (res.done) {
@@ -154,10 +155,13 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       cleanups.push(() => resizeObserver.disconnect());
 
       cleanups.push(
-        window.api.onTermData((data) => term.write(normalize(data))),
+        window.api.onTermData((id, data) => {
+          if (id === sessionId) term.write(normalize(data));
+        }),
       );
       cleanups.push(
-        window.api.onTermExit((code, newCwd) => {
+        window.api.onTermExit((id, code, newCwd) => {
+          if (id !== sessionId) return;
           runningRef.current = false;
           cwdRef.current = newCwd;
           if (code !== 0)
@@ -170,12 +174,12 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
         if (runningRef.current) {
           // proceso activo: Ctrl+C lo mata, el resto va a stdin con eco local
           if (data === "\x03") {
-            void window.api.termKill();
+            void window.api.termKill(sessionId);
             return;
           }
           const out = data === "\r" ? "\r\n" : data;
           term.write(out);
-          void window.api.termStdin(out);
+          void window.api.termStdin(sessionId, out);
           return;
         }
 
@@ -235,7 +239,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       });
       cleanups.push(() => dataDisposable.dispose());
 
-      cwdRef.current = await window.api.termGetCwd();
+      cwdRef.current = await window.api.termGetCwd(sessionId);
       if (disposed) return;
       prompt();
     })();
@@ -254,7 +258,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
     else if (!hadProjectRef.current) return;
 
     void (async () => {
-      cwdRef.current = await window.api.termSetCwd(cwd ?? "~");
+      cwdRef.current = await window.api.termSetCwd(sessionId, cwd ?? "~");
       if (!runningRef.current && termRef.current) {
         bufferRef.current = "";
         redrawLine();

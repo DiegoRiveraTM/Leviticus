@@ -5,30 +5,47 @@ contextBridge.exposeInMainWorld('api', {
   winMinimize: () => ipcRenderer.send('win:minimize'),
   winMaximize: () => ipcRenderer.send('win:maximize'),
   winClose: () => ipcRenderer.send('win:close'),
+  winFullscreen: () => ipcRenderer.send('win:fullscreen'),
+  confirmClose: () => ipcRenderer.send('app:confirm-close'),
+  onCloseRequest: (cb: () => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('app:close-request', listener)
+    return () => ipcRenderer.off('app:close-request', listener)
+  },
 
   // sistema de archivos
   openFolder: () => ipcRenderer.invoke('dialog:openFolder'),
   readDir: (path: string) => ipcRenderer.invoke('fs:readDir', path),
   readFile: (path: string) => ipcRenderer.invoke('fs:readFile', path),
+  readFileBase64: (path: string) => ipcRenderer.invoke('fs:readFileBase64', path),
   writeFile: (path: string, content: string) => ipcRenderer.invoke('fs:writeFile', path, content),
   createFile: (path: string) => ipcRenderer.invoke('fs:createFile', path),
   createDir: (path: string) => ipcRenderer.invoke('fs:createDir', path),
   renamePath: (oldPath: string, newPath: string) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
   deletePath: (path: string) => ipcRenderer.invoke('fs:delete', path),
+  listFiles: (root: string) => ipcRenderer.invoke('fs:listFiles', root),
 
-  // terminal
-  termRun: (command: string) => ipcRenderer.invoke('term:run', command),
-  termStdin: (data: string) => ipcRenderer.invoke('term:stdin', data),
-  termKill: () => ipcRenderer.invoke('term:kill'),
-  termGetCwd: () => ipcRenderer.invoke('term:getCwd'),
-  termSetCwd: (dir: string) => ipcRenderer.invoke('term:setCwd', dir),
-  onTermData: (cb: (data: string) => void) => {
-    const listener = (_e: IpcRendererEvent, data: string) => cb(data)
+  // búsqueda global
+  searchInFiles: (root: string, query: string) =>
+    ipcRenderer.invoke('search:inFiles', root, query),
+  searchReplace: (root: string, query: string, replacement: string) =>
+    ipcRenderer.invoke('search:replace', root, query, replacement),
+
+  // terminal (multi-sesión)
+  termRun: (id: number, command: string) => ipcRenderer.invoke('term:run', id, command),
+  termStdin: (id: number, data: string) => ipcRenderer.invoke('term:stdin', id, data),
+  termKill: (id: number) => ipcRenderer.invoke('term:kill', id),
+  termDispose: (id: number) => ipcRenderer.invoke('term:dispose', id),
+  termGetCwd: (id: number) => ipcRenderer.invoke('term:getCwd', id),
+  termSetCwd: (id: number, dir: string) => ipcRenderer.invoke('term:setCwd', id, dir),
+  onTermData: (cb: (id: number, data: string) => void) => {
+    const listener = (_e: IpcRendererEvent, id: number, data: string) => cb(id, data)
     ipcRenderer.on('term:data', listener)
     return () => ipcRenderer.off('term:data', listener)
   },
-  onTermExit: (cb: (code: number, cwd: string) => void) => {
-    const listener = (_e: IpcRendererEvent, code: number, cwd: string) => cb(code, cwd)
+  onTermExit: (cb: (id: number, code: number, cwd: string) => void) => {
+    const listener = (_e: IpcRendererEvent, id: number, code: number, cwd: string) =>
+      cb(id, code, cwd)
     ipcRenderer.on('term:exit', listener)
     return () => ipcRenderer.off('term:exit', listener)
   },
@@ -37,6 +54,7 @@ contextBridge.exposeInMainWorld('api', {
   gitInfo: (root: string) => ipcRenderer.invoke('git:info', root),
   gitStatus: (root: string) => ipcRenderer.invoke('git:status', root),
   gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
+  gitLog: (root: string) => ipcRenderer.invoke('git:log', root),
   gitScanSensitive: (root: string, files: string[]) =>
     ipcRenderer.invoke('git:scanSensitive', root, files),
 
