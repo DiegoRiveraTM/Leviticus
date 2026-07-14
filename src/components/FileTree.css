@@ -1,0 +1,311 @@
+.filetree {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+}
+
+.filetree-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 14px 10px;
+    font-size: 10.5px;
+    font-weight: 650;
+    letter-spacing: 0.07em;
+    color: rgba(230, 240, 255, 0.55);
+    text-transform: uppercase;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    flex-shrink: 0;
+}
+
+.filetree-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.filetree-actions {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+}
+
+.open-btn {
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    border-radius: 6px;
+    color: rgba(230, 240, 255, 0.45);
+    font-size: 15px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+    transition: background 0.18s cubic-bezier(0.25, 1, 0.5, 1), color 0.18s;
+}
+
+.open-btn:hover {
+    background: rgba(255, 255, 255, 0.09);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.close-btn {
+    font-size: 10px;
+}
+
+.close-btn:hover {
+    background: rgba(255, 69, 58, 0.16);
+    color: #ff7b72;
+}
+
+.filetree-empty {
+    padding: 18px 14px;
+    font-size: 11.5px;
+    font-weight: 550;
+    color: rgba(230, 240, 255, 0.32);
+    cursor: pointer;
+    text-align: center;
+    border: 1px dashed rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    margin: 12px 10px;
+    transition: all 0.18s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.filetree-empty:hover {
+    color: rgba(255, 255, 255, 0.8);
+    border-color: rgba(10, 132, 255, 0.4);
+    background: rgba(10, 132, 255, 0.07);
+}
+
+.filetree-entries {
+    padding: 6px;
+    overflow-y: auto;
+    min-height: 0;
+    /* ocupa todo el alto: así el clic derecho funciona aunque
+       la carpeta esté vacía o tenga pocos archivos */
+    flex: 1;
+}
+
+.filetree-empty.secondary {
+    margin-top: 0;
+    border-style: solid;
+    border-color: rgba(255, 255, 255, 0.06);
+    font-size: 11px;
+}
+
+.ft-folder {
+    padding: 4.5px 10px 4.5px 8px;
+    font-size: 12px;
+    font-weight: 600;
+    color: rgba(240, 246, 255, 0.68);
+    cursor: pointer;
+    position: relative;
+    border-radius: 7px;
+    margin: 1px 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background 0.16s cubic-bezier(0.25, 1, 0.5, 1), color 0.16s;
+}
+
+.ft-chevron {
+    flex-shrink: 0;
+    color: rgba(230, 240, 255, 0.4);
+    transition: transform 0.15s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.ft-chevron.open {
+    transform: rotate(90deg);
+}
+
+.ft-icon {
+    flex-shrink: 0;
+}
+
+.ft-folder .ft-icon {
+    color: rgba(122, 168, 255, 0.75);
+}
+
+.ft-file .ft-icon {
+    color: rgba(230, 240, 255, 0.35);
+}
+
+.ft-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.ft-badge {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: 9.5px;
+    font-weight: 700;
+    padding-left: 6px;
+}
+
+/* colores de estado git, como VS Code */
+.git-added {
+    color: #4ade80;
+}
+
+.git-modified {
+    color: #e3b341;
+}
+
+.git-deleted {
+    color: #f85149;
+    text-decoration: line-through;
+}
+
+.git-dirty {
+    color: #4ade80;
+}
+
+.ft-folder .ft-badge.git-dirty {
+    font-size: 7px;
+}
+
+/* fila de creación/renombrado inline */
+.ft-edit-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    margin: 1px 0;
+}
+
+.ft-edit-row .ft-icon {
+    color: rgba(122, 168, 255, 0.75);
+    flex-shrink: 0;
+}
+
+.ft-edit-input {
+    flex: 1;
+    min-width: 0;
+    padding: 3px 8px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 6px;
+    border: 1px solid rgba(10, 132, 255, 0.55);
+    background: rgba(0, 0, 0, 0.35);
+    color: rgba(255, 255, 255, 0.95);
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+}
+
+.ft-edit-input::placeholder {
+    color: rgba(230, 240, 255, 0.28);
+}
+
+/* menú contextual (clic derecho) */
+.ctx-menu {
+    position: fixed;
+    z-index: 300;
+    min-width: 175px;
+    padding: 5px;
+    border-radius: 11px;
+    background: rgba(16, 22, 44, 0.92);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.12),
+        0 14px 44px rgba(0, 0, 0, 0.55);
+    backdrop-filter: blur(24px) saturate(1.6);
+    -webkit-backdrop-filter: blur(24px) saturate(1.6);
+    animation: ctx-in 0.14s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes ctx-in {
+    from {
+        opacity: 0;
+        transform: scale(0.96);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.ctx-label {
+    padding: 4px 10px 6px;
+    font-size: 10px;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    color: rgba(230, 240, 255, 0.35);
+    text-transform: uppercase;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 200px;
+}
+
+.ctx-item {
+    padding: 6px 10px;
+    font-size: 12px;
+    font-weight: 550;
+    color: rgba(240, 246, 255, 0.85);
+    border-radius: 7px;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.ctx-item:hover {
+    background: rgba(10, 132, 255, 0.28);
+    color: #fff;
+}
+
+.ctx-item.danger {
+    color: #ff8a80;
+}
+
+.ctx-item.danger:hover {
+    background: rgba(255, 69, 58, 0.22);
+    color: #ffb4ab;
+}
+
+.ctx-sep {
+    height: 1px;
+    margin: 4px 8px;
+    background: rgba(255, 255, 255, 0.09);
+}
+
+.ft-folder:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: rgba(255, 255, 255, 0.95);
+}
+
+.ft-folder.active {
+    color: #fff;
+    background: rgba(10, 132, 255, 0.14);
+    box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.22);
+}
+
+.ft-file {
+    padding: 4px 10px 4px 24px;
+    font-size: 12px;
+    font-weight: 500;
+    color: rgba(230, 240, 255, 0.45);
+    cursor: pointer;
+    border-radius: 7px;
+    margin: 1px 0;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    overflow: hidden;
+    transition: background 0.16s cubic-bezier(0.25, 1, 0.5, 1), color 0.16s;
+}
+
+.ft-file:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: rgba(255, 255, 255, 0.9);
+}

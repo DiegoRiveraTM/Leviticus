@@ -1,0 +1,830 @@
+/* ============================================================
+   Levitico · UI espacial con acabado Apple
+   Inter para interfaz, JetBrains Mono para código.
+   Paneles flotantes de vidrio sobre el fondo estelar.
+   ============================================================ */
+
+:root {
+  --accent: #0a84ff;
+  --accent-soft: rgba(10, 132, 255, 0.16);
+  --glass-bg: rgba(16, 22, 44, 0.42);
+  --glass-bg-deep: rgba(10, 14, 30, 0.55);
+  --glass-border: rgba(255, 255, 255, 0.09);
+  --hairline: rgba(255, 255, 255, 0.07);
+  --text-1: rgba(255, 255, 255, 0.93);
+  --text-2: rgba(230, 240, 255, 0.58);
+  --text-3: rgba(230, 240, 255, 0.32);
+  --radius-lg: 14px;
+  --radius-md: 10px;
+  --radius-sm: 7px;
+  --ease: cubic-bezier(0.25, 1, 0.5, 1);
+  --card-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 0 0 0.5px rgba(255, 255, 255, 0.04),
+    0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'Inter', -apple-system, 'Segoe UI Variable', system-ui, sans-serif;
+  font-weight: 550;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+/* tracking apretado SOLO en la interfaz: Monaco y xterm posicionan cada
+   glifo con medidas exactas y cualquier estilo tipográfico global dentro
+   de ellos rompe el renderizado (texto encimado / letras separadas) */
+.titlebar,
+.sidebar,
+.tabs,
+.panel-tabs,
+.statusbar,
+.modal {
+  letter-spacing: -0.011em;
+}
+
+code,
+pre {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.monaco-editor,
+.monaco-editor *,
+.xterm,
+.xterm * {
+  letter-spacing: 0;
+}
+
+::selection {
+  background: rgba(10, 132, 255, 0.35);
+}
+
+button {
+  -webkit-tap-highlight-color: transparent;
+}
+
+#space-bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100vw;
+  height: 100vh;
+}
+
+#root {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- marco de la ventana ---------- */
+
+.ide {
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 10px;
+  overflow: hidden;
+  color: var(--text-1);
+  background: radial-gradient(120% 90% at 50% 0%,
+      rgba(30, 55, 140, 0.10) 0%,
+      transparent 60%);
+  /* contorno de vidrio del marco */
+  border: 1px solid rgba(190, 215, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 0 80px rgba(26, 86, 255, 0.05);
+}
+
+/* tarjeta de vidrio base */
+.titlebar,
+.sidebar,
+.editor-area,
+.bottom,
+.statusbar {
+  background: var(--glass-bg);
+  backdrop-filter: blur(28px) saturate(1.7);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+
+/* ---------- barra de título (sin nombre) ---------- */
+
+.titlebar {
+  position: relative;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 14px;
+  margin-bottom: 9px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+/* reflejo de luz en el borde superior */
+.titlebar::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 24px;
+  right: 24px;
+  height: 1px;
+  border-radius: 1px;
+  background: linear-gradient(90deg,
+      transparent 0%,
+      rgba(255, 255, 255, 0.32) 30%,
+      rgba(170, 205, 255, 0.4) 50%,
+      rgba(255, 255, 255, 0.32) 70%,
+      transparent 100%);
+  pointer-events: none;
+}
+
+.titlebar-drag {
+  flex: 1;
+  height: 100%;
+}
+
+/* controles de ventana */
+.win-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 8px;
+  -webkit-app-region: no-drag;
+}
+
+.win-btn {
+  width: 36px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.win-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
+}
+
+.win-btn.close:hover {
+  background: rgba(225, 45, 70, 0.72);
+  color: #fff;
+}
+
+/* acciones (ejecutar / guardar) */
+.titlebar-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 30px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.07);
+  -webkit-app-region: no-drag;
+}
+
+.tb-btn {
+  width: 34px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease), transform 0.1s var(--ease);
+}
+
+.tb-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-1);
+}
+
+.tb-btn:active {
+  transform: scale(0.94);
+}
+
+.tb-btn:disabled {
+  opacity: 0.28;
+  cursor: default;
+}
+
+.tb-btn.run {
+  color: #40d474;
+}
+
+.tb-btn.run:hover {
+  background: rgba(48, 209, 88, 0.14);
+  color: #5fee92;
+}
+
+/* ---------- layout principal ---------- */
+
+.main {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* divisores arrastrables entre paneles */
+.splitter {
+  flex-shrink: 0;
+  position: relative;
+  z-index: 5;
+  -webkit-app-region: no-drag;
+}
+
+.splitter::after {
+  content: '';
+  position: absolute;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.15s var(--ease);
+}
+
+.splitter-v {
+  width: 9px;
+  cursor: col-resize;
+}
+
+.splitter-v::after {
+  top: 18%;
+  bottom: 18%;
+  left: 3.5px;
+  width: 2px;
+}
+
+.splitter-h {
+  height: 9px;
+  cursor: row-resize;
+}
+
+.splitter-h::after {
+  left: 18%;
+  right: 18%;
+  top: 3.5px;
+  height: 2px;
+}
+
+.splitter:hover::after,
+.splitter.dragging::after {
+  background: rgba(10, 132, 255, 0.55);
+}
+
+.sidebar {
+  width: 224px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+
+/* los paneles que hacen scroll constante (editor y terminal) no llevan
+   backdrop-filter: re-difuminar el fondo animado en cada frame traba el
+   scroll y deja artefactos; usan un fondo casi opaco en su lugar */
+.editor-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(8, 12, 28, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.tabs {
+  height: 42px;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  gap: 4px;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.tabs::-webkit-scrollbar {
+  height: 0;
+}
+
+.tab {
+  padding: 4px 8px 4px 13px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.16s var(--ease), color 0.16s var(--ease), border-color 0.16s var(--ease);
+}
+
+.tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-1);
+}
+
+.tab.active {
+  font-weight: 600;
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--hairline);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.tab-close {
+  width: 17px;
+  height: 17px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 5px;
+  color: var(--text-3);
+  cursor: pointer;
+  opacity: 0;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease), opacity 0.15s var(--ease);
+}
+
+.tab:hover .tab-close,
+.tab.active .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff;
+}
+
+.dirty-dot {
+  color: var(--accent);
+  font-size: 8px;
+  line-height: 1;
+}
+
+.editor-empty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-3);
+  letter-spacing: 0.02em;
+}
+
+/* ---------- panel inferior / terminal ---------- */
+
+.bottom {
+  height: 216px;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: rgba(8, 12, 28, 0.92);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+.panel-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border-bottom: 1px solid var(--hairline);
+  padding: 7px 12px;
+  flex-shrink: 0;
+}
+
+.panel-tab {
+  padding: 3px 12px;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.18s var(--ease), color 0.18s var(--ease);
+}
+
+.panel-tab:hover {
+  color: var(--text-2);
+}
+
+.panel-tab.active {
+  color: #8ec2ff;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.28);
+}
+
+.terminal {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---------- barra de estado ---------- */
+
+.statusbar {
+  height: 30px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  margin-top: 9px;
+  gap: 14px;
+  flex-shrink: 0;
+}
+
+.status-item {
+  font-size: 11px;
+  font-weight: 550;
+  color: var(--text-2);
+  letter-spacing: -0.005em;
+}
+
+.status-item.accent {
+  color: #8ec2ff;
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.25);
+  border-radius: 999px;
+  padding: 2px 11px;
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.status-item.right {
+  margin-left: auto;
+  color: var(--text-3);
+}
+
+/* indicadores compactos: RAM, batería, hora, sesión */
+.status-extras {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sx-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sx-item svg {
+  flex-shrink: 0;
+}
+
+/* ---------- modal de vidrio ---------- */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(4, 6, 14, 0.45);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: overlay-in 0.22s var(--ease);
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+.modal {
+  width: min(400px, 86vw);
+  padding: 24px;
+  border-radius: 18px;
+  background: linear-gradient(160deg,
+      rgba(45, 65, 130, 0.32) 0%,
+      rgba(12, 16, 34, 0.78) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 24px 70px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(32px) saturate(1.7);
+  -webkit-backdrop-filter: blur(32px) saturate(1.7);
+  animation: modal-in 0.26s var(--ease);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.modal-title {
+  font-size: 14.5px;
+  font-weight: 650;
+  letter-spacing: -0.015em;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+
+.modal-body {
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: var(--text-2);
+  margin-bottom: 20px;
+}
+
+.modal-body strong {
+  color: var(--text-1);
+  font-weight: 650;
+}
+
+.modal-input {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 9px;
+  border: 1px solid var(--hairline);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-1);
+  outline: none;
+  transition: border-color 0.18s var(--ease), box-shadow 0.18s var(--ease);
+}
+
+.modal-input::placeholder {
+  color: var(--text-3);
+}
+
+.modal-input:focus {
+  border-color: rgba(10, 132, 255, 0.55);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.18);
+}
+
+/* fila de rama: selector + crear */
+.git-branch-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #8ec2ff;
+  margin-bottom: 4px;
+}
+
+.modal-select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 9px;
+  border: 1px solid var(--hairline);
+  background: rgba(0, 0, 0, 0.28);
+  color: var(--text-1);
+  outline: none;
+  cursor: pointer;
+}
+
+.modal-select option {
+  background: #10162c;
+  color: #fff;
+}
+
+.modal-btn.mini {
+  padding: 4px 10px;
+  font-size: 14px;
+  line-height: 1;
+}
+
+/* lista de archivos del commit con checkbox */
+.git-files {
+  margin-top: 10px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid var(--hairline);
+  border-radius: 10px;
+  padding: 4px;
+  background: rgba(0, 0, 0, 0.2);
+}
+
+.git-file {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3.5px 7px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+
+.git-file:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.git-file input[type="checkbox"] {
+  accent-color: var(--accent);
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+
+.gf-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: rgba(235, 242, 255, 0.75);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+
+.gf-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gf-badge.st-U,
+.gf-badge.st-A {
+  color: #4ade80;
+}
+
+.gf-badge.st-M,
+.gf-badge.st-R {
+  color: #e3b341;
+}
+
+.gf-badge.st-D {
+  color: #f85149;
+}
+
+/* advertencia de información sensible */
+.sens-title {
+  color: #ffb648;
+}
+
+.sens-list {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 182, 72, 0.25);
+  background: rgba(255, 159, 10, 0.07);
+  border-radius: 10px;
+  padding: 8px 10px;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.sens-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 2.5px 0;
+}
+
+.sens-file {
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  color: #ffd28a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sens-reason {
+  flex-shrink: 0;
+  font-size: 10px;
+  color: rgba(255, 210, 138, 0.6);
+}
+
+.git-remote {
+  margin-top: 10px;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.modal-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.modal-btn {
+  padding: 7px 16px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.18s var(--ease), transform 0.1s var(--ease), box-shadow 0.18s var(--ease);
+}
+
+.modal-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.modal-btn:active {
+  transform: scale(0.97);
+}
+
+.modal-btn.primary {
+  background: var(--accent);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.25),
+    0 4px 16px rgba(10, 132, 255, 0.4);
+}
+
+.modal-btn.primary:hover {
+  background: #2492ff;
+}
+
+/* ---------- scrollbars ---------- */
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  background-clip: padding-box;
+}
+
+/* el fondo del editor lo define el tema "levitico" (sólido a propósito:
+   la transparencia total causaba texto fantasma al hacer scroll) */

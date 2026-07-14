@@ -1,0 +1,17 @@
+.xterm-container {
+    width: 100%;
+    height: 100%;
+    padding: 8px 14px 4px;
+}
+
+.xterm-container .xterm,
+.xterm-container .xterm-viewport,
+.xterm-container .xterm-screen {
+    width: 100% !important;
+    height: 100% !important;
+    background: transparent !important;
+}
+
+.xterm-container .xterm-viewport::-webkit-scrollbar {
+    width: 4px;
+}
