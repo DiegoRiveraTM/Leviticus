@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import RacingBorder from "./RacingBorder";
+import { useT } from "../i18n";
 import "./FileTree.css";
 
 interface FileEntry {
@@ -51,6 +52,13 @@ function iconColor(fileName: string): string {
 
 function parentOf(p: string) {
   return p.replace(/[\\/][^\\/]+$/, "");
+}
+
+// ¿la ruta está ignorada por git? (la propia carpeta .git también cuenta,
+// aunque git no la reporte en status --ignored)
+function isIgnoredPath(p: string, name: string, ignored: string[]): boolean {
+  if (name === ".git" || p.includes("\\.git\\")) return true;
+  return ignored.some((ig) => p === ig || p.startsWith(ig + "\\"));
 }
 
 function lastSegment(p: string) {
@@ -120,6 +128,7 @@ interface TreeNodeProps {
   dropTarget: string | null;
   setDropTarget: (path: string | null) => void;
   statuses: Record<string, string>;
+  ignored: string[];
 }
 
 function TreeNode(props: TreeNodeProps) {
@@ -135,7 +144,9 @@ function TreeNode(props: TreeNodeProps) {
     dropTarget,
     setDropTarget,
     statuses,
+    ignored,
   } = props;
+  const { t } = useT();
   const [expanded, setExpanded] = useState(false);
   const [children, setChildren] = useState<FileEntry[]>([]);
 
@@ -171,14 +182,19 @@ function TreeNode(props: TreeNodeProps) {
     e.dataTransfer.effectAllowed = "move";
   }
 
+  const entryIgnored = isIgnoredPath(entry.path, entry.name, ignored);
+
   if (entry.isDirectory) {
     const isActive = activeFolder === entry.path;
     const prefix = entry.path + "\\";
-    const hasChanges = Object.keys(statuses).some((p) => p.startsWith(prefix));
+    const hasChanges =
+      !entryIgnored &&
+      Object.keys(statuses).some((p) => p.startsWith(prefix));
     return (
       <>
         <div
-          className={`ft-folder ${isActive ? "active" : ""} ${dropTarget === entry.path ? "drop" : ""}`}
+          className={`ft-folder ${isActive ? "active" : ""} ${dropTarget === entry.path ? "drop" : ""} ${entryIgnored ? "ft-ignored" : ""}`}
+          title={entryIgnored ? t("ft.ignoredTip") : undefined}
           style={{ paddingLeft: 8 + depth * 12 }}
           onClick={toggle}
           onContextMenu={handleContext}
@@ -218,11 +234,12 @@ function TreeNode(props: TreeNodeProps) {
     );
   }
 
-  const status = statuses[entry.path];
+  const status = entryIgnored ? undefined : statuses[entry.path];
   const statusClass = status ? STATUS_CLASS[status] ?? "" : "";
   return (
     <div
-      className="ft-file"
+      className={`ft-file ${entryIgnored ? "ft-ignored" : ""}`}
+      title={entryIgnored ? t("ft.ignoredTip") : undefined}
       style={{ paddingLeft: 22 + depth * 12 }}
       onClick={toggle}
       onContextMenu={handleContext}
@@ -232,6 +249,7 @@ function TreeNode(props: TreeNodeProps) {
       <FileIcon name={entry.name} />
       <span className={`ft-name ${statusClass}`}>{entry.name}</span>
       {status && <span className={`ft-badge ${statusClass}`}>{status}</span>}
+      {entryIgnored && <span className="ft-badge ft-ignored-badge">⊘</span>}
     </div>
   );
 }
@@ -249,6 +267,7 @@ interface Props {
   onFsChange?: () => void;
   onEntryRemoved?: (path: string) => void;
   statuses?: Record<string, string>;
+  ignored?: string[];
 }
 
 export default function FileTree({
@@ -259,7 +278,9 @@ export default function FileTree({
   onFsChange,
   onEntryRemoved,
   statuses = {},
+  ignored = [],
 }: Props) {
+  const { t } = useT();
   const [rootPath, setRootPath] = useState<string | null>(null);
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [activeFolder, setActiveFolder] = useState<string | null>(null);
@@ -272,6 +293,7 @@ export default function FileTree({
   } | null>(null);
   const [edit, setEdit] = useState<EditState>(null);
   const [editName, setEditName] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState<FileEntry | null>(null);
 
   // restaurar el proyecto de la sesión anterior
   useEffect(() => {
@@ -309,6 +331,13 @@ export default function FileTree({
     if (rootPath) void window.api.readDir(rootPath).then(setEntries);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);
+
+  // cambios hechos fuera del explorador (panel DevOps, comandos de la
+  // terminal, otros editores): el watcher del main avisa y se re-lee todo
+  useEffect(() => {
+    const off = window.api.onFsChanged(() => setVersion((v) => v + 1));
+    return off;
+  }, []);
 
   // el menú contextual se cierra al hacer clic en cualquier otro lado
   useEffect(() => {
@@ -372,17 +401,33 @@ export default function FileTree({
     setCtxMenu(null);
   }
 
-  async function doDelete() {
+  // el clic derecho solo abre la confirmación; el borrado real va aparte
+  function doDelete() {
     const entry = ctxMenu?.entry;
     setCtxMenu(null);
+    if (entry) setConfirmDelete(entry);
+  }
+
+  async function reallyDelete() {
+    const entry = confirmDelete;
     if (!entry) return;
-    if (!window.confirm(`¿Enviar "${entry.name}" a la papelera?`)) return;
+    setConfirmDelete(null);
     const ok = await window.api.deletePath(entry.path);
     if (ok) {
       onEntryRemoved?.(entry.path);
       bump();
     }
   }
+
+  // Escape cierra la confirmación (Enter la acepta vía el botón enfocado)
+  useEffect(() => {
+    if (!confirmDelete) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfirmDelete(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [confirmDelete]);
 
   async function confirmEdit() {
     if (!edit) return;
@@ -429,7 +474,7 @@ export default function FileTree({
             <>
               <button
                 className="open-btn"
-                title="Nuevo archivo"
+                title={t("ft.tipNewFile")}
                 onClick={() => {
                   setEdit({ mode: "create-file", base: activeFolder ?? rootPath });
                   setEditName("");
@@ -443,7 +488,7 @@ export default function FileTree({
               </button>
               <button
                 className="open-btn"
-                title="Nueva carpeta"
+                title={t("ft.tipNewFolder")}
                 onClick={() => {
                   setEdit({ mode: "create-dir", base: activeFolder ?? rootPath });
                   setEditName("");
@@ -456,13 +501,17 @@ export default function FileTree({
               </button>
             </>
           )}
-          <button className="open-btn" title="Abrir carpeta" onClick={openFolder}>
+          <button
+            className="open-btn"
+            title={t("ft.tipOpenFolder")}
+            onClick={openFolder}
+          >
             ⊕
           </button>
           {rootPath && (
             <button
               className="open-btn close-btn"
-              title="Cerrar proyecto"
+              title={t("ft.tipCloseProject")}
               onClick={closeFolder}
             >
               ✕
@@ -479,7 +528,7 @@ export default function FileTree({
               <input
                 autoFocus
                 className="ft-edit-input"
-                placeholder={`nueva carpeta en ${lastSegment(edit.base)}/`}
+                placeholder={`${t("ft.phNewRoot")} ${lastSegment(edit.base)}/`}
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
                 onKeyDown={(e) => {
@@ -492,13 +541,13 @@ export default function FileTree({
           ) : (
             <>
               <div className="filetree-empty" onClick={openFolder}>
-                Open folder
+                {t("ft.openFolder")}
               </div>
               <div
                 className="filetree-empty secondary"
                 onClick={() => void createProjectFolder()}
               >
-                + Crear carpeta de proyecto
+                {t("ft.createProject")}
               </div>
             </>
           )}
@@ -528,8 +577,8 @@ export default function FileTree({
                 className="ft-edit-input"
                 placeholder={
                   edit.mode === "rename"
-                    ? "nuevo nombre…"
-                    : `${edit.mode === "create-dir" ? "carpeta" : "archivo"} en ${lastSegment(edit.base)}/`
+                    ? t("ft.phRename")
+                    : `${edit.mode === "create-dir" ? t("ft.wordFolder") : t("ft.wordFile")} ${t("ft.in")} ${lastSegment(edit.base)}/`
                 }
                 value={editName}
                 onChange={(e) => setEditName(e.target.value)}
@@ -555,6 +604,7 @@ export default function FileTree({
               dropTarget={dropTarget}
               setDropTarget={setDropTarget}
               statuses={statuses}
+              ignored={ignored}
             />
           ))}
         </div>
@@ -574,22 +624,78 @@ export default function FileTree({
               <div className="ctx-label">{ctxMenu.entry.name}</div>
             )}
             <div className="ctx-item" onClick={() => startCreate("create-file")}>
-              Nuevo archivo…
+              {t("ft.ctxNewFile")}
             </div>
             <div className="ctx-item" onClick={() => startCreate("create-dir")}>
-              Nueva carpeta…
+              {t("ft.ctxNewFolder")}
             </div>
             {ctxMenu.entry && (
               <>
                 <div className="ctx-sep" />
                 <div className="ctx-item" onClick={startRename}>
-                  Renombrar…
+                  {t("ft.ctxRename")}
                 </div>
-                <div className="ctx-item danger" onClick={() => void doDelete()}>
-                  Eliminar (a la papelera)
+                <div className="ctx-item danger" onClick={doDelete}>
+                  {t("ft.ctxDelete")}
                 </div>
               </>
             )}
+          </div>,
+          document.body,
+        )}
+
+      {confirmDelete &&
+        createPortal(
+          <div className="modal-overlay" onClick={() => setConfirmDelete(null)}>
+            <div className="modal" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-title del-title">
+                <svg
+                  width="14"
+                  height="15"
+                  viewBox="0 0 14 15"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M1.5 3.5h11M5.5 1.5h3M2.5 3.5l.8 9c.05.6.5 1 1.1 1h5.2c.6 0 1.05-.4 1.1-1l.8-9" />
+                  <path d="M5.5 6.5v4M8.5 6.5v4" />
+                </svg>
+                {t("del.title")}
+              </div>
+              <div className="modal-body">
+                <div className="del-target">
+                  {confirmDelete.isDirectory ? (
+                    <FolderIcon open={false} />
+                  ) : (
+                    <FileIcon name={confirmDelete.name} />
+                  )}
+                  <span className="del-name" title={confirmDelete.path}>
+                    {confirmDelete.name}
+                  </span>
+                </div>
+                {confirmDelete.isDirectory
+                  ? t("del.folderBody")
+                  : t("del.fileBody")}{" "}
+                {t("del.restore")}
+              </div>
+              <div className="modal-actions">
+                <button
+                  autoFocus
+                  className="modal-btn danger"
+                  onClick={() => void reallyDelete()}
+                >
+                  {t("del.confirm")}
+                </button>
+                <button
+                  className="modal-btn"
+                  onClick={() => setConfirmDelete(null)}
+                >
+                  {t("common.cancel")}
+                </button>
+              </div>
+            </div>
           </div>,
           document.body,
         )}

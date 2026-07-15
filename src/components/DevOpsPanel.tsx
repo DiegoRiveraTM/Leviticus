@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useT } from "../i18n";
 
 interface Props {
   root: string;
@@ -9,11 +10,14 @@ interface Props {
 
 interface Detection {
   dockerfile: boolean;
+  dockerignore: boolean;
   compose: string | null;
   terraform: boolean;
   k8sDir: string | null;
   workflows: string[];
   hasPackageJson: boolean;
+  hasPython: boolean;
+  hasGitignore: boolean;
 }
 
 const TOOLS = [
@@ -23,7 +27,9 @@ const TOOLS = [
   { id: "gh", name: "GitHub CLI", url: "https://cli.github.com/" },
 ] as const;
 
-const DOCKERFILE_TEMPLATE = `FROM node:20-alpine
+// ---------- plantillas ----------
+
+const DOCKERFILE_NODE_TEMPLATE = `FROM node:20-alpine
 WORKDIR /app
 COPY package*.json ./
 RUN npm ci
@@ -33,7 +39,92 @@ EXPOSE 3000
 CMD ["npm", "start"]
 `;
 
-const CI_TEMPLATE = `name: CI
+const DOCKERFILE_PY_TEMPLATE = `FROM python:3.12-slim
+WORKDIR /app
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+# ajusta el comando a tu app: uvicorn para FastAPI, python main.py, etc.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+`;
+
+const DOCKERIGNORE_TEMPLATE = `node_modules
+dist
+build
+.git
+.env
+*.log
+__pycache__
+.venv
+venv
+`;
+
+const composeTemplate = (name: string) => `services:
+  app:
+    build: .
+    image: ${name}
+    ports:
+      - "3000:3000"
+    restart: unless-stopped
+    # env_file: .env
+`;
+
+const k8sTemplate = (name: string) => `apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ${name}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ${name}
+  template:
+    metadata:
+      labels:
+        app: ${name}
+    spec:
+      containers:
+        - name: ${name}
+          image: ${name}:latest
+          ports:
+            - containerPort: 3000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ${name}
+spec:
+  selector:
+    app: ${name}
+  ports:
+    - port: 80
+      targetPort: 3000
+`;
+
+const TF_TEMPLATE = `terraform {
+  required_version = ">= 1.5"
+
+  # declara aquí tus providers, por ejemplo:
+  # required_providers {
+  #   aws = {
+  #     source  = "hashicorp/aws"
+  #     version = "~> 5.0"
+  #   }
+  # }
+}
+
+# provider "aws" {
+#   region = "us-east-1"
+# }
+
+# recurso de ejemplo:
+# resource "aws_s3_bucket" "assets" {
+#   bucket = "mi-bucket-unico"
+# }
+`;
+
+const CI_NODE_TEMPLATE = `name: CI
 
 on:
   push:
@@ -54,6 +145,28 @@ jobs:
       - run: npm run lint --if-present
       - run: npm run build --if-present
       - run: npm test --if-present
+`;
+
+const CI_PY_TEMPLATE = `name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: pip install pytest
+      - run: pytest
 `;
 
 const RELEASE_TEMPLATE = `name: Release
@@ -80,7 +193,25 @@ jobs:
           GITHUB_TOKEN: \${{ secrets.GITHUB_TOKEN }}
 `;
 
+const GITIGNORE_NODE_TEMPLATE = `node_modules/
+dist/
+build/
+.env
+.env.*
+*.log
+`;
+
+const GITIGNORE_PY_TEMPLATE = `__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+dist/
+*.egg-info/
+`;
+
 export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: Props) {
+  const { t } = useT();
   const [detect, setDetect] = useState<Detection | null>(null);
   const [tools, setTools] = useState<Record<string, boolean>>({});
 
@@ -110,11 +241,17 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
       }
       setDetect({
         dockerfile: names.includes("dockerfile"),
+        dockerignore: names.includes(".dockerignore"),
         compose,
         terraform: names.some((n) => n.endsWith(".tf")),
         k8sDir,
         workflows,
         hasPackageJson: names.includes("package.json"),
+        hasPython:
+          names.includes("requirements.txt") ||
+          names.includes("pyproject.toml") ||
+          names.some((n) => n.endsWith(".py")),
+        hasGitignore: names.includes(".gitignore"),
       });
 
       const checks: Record<string, boolean> = {};
@@ -132,11 +269,11 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
     const abs = root + "\\" + relPath;
     const created = await window.api.createFile(abs);
     if (!created) {
-      onNotice(`${relPath} ya existe; no lo sobrescribí.`);
+      onNotice(t("dv.exists", relPath));
       return;
     }
     await window.api.writeFile(abs, content);
-    onNotice(`✓ ${label} creado en ${relPath}`);
+    onNotice(t("dv.created", label, relPath));
     onClose();
   }
 
@@ -145,7 +282,7 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
       <div className="modal-overlay" onClick={onClose}>
         <div className="modal" onClick={(e) => e.stopPropagation()}>
           <div className="modal-title">DevOps</div>
-          <div className="modal-body">Analizando el proyecto…</div>
+          <div className="modal-body">{t("dv.analyzing")}</div>
         </div>
       </div>
     );
@@ -158,17 +295,21 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
         <div className="modal-body">
           {/* herramientas instaladas */}
           <div className="dv-tools">
-            {TOOLS.map((t) => (
+            {TOOLS.map((tool) => (
               <span
-                key={t.id}
-                className={`dv-tool ${tools[t.id] ? "ok" : "missing"}`}
-                title={tools[t.id] ? `${t.name} instalado` : `Descargar ${t.name}`}
+                key={tool.id}
+                className={`dv-tool ${tools[tool.id] ? "ok" : "missing"}`}
+                title={
+                  tools[tool.id]
+                    ? `${tool.name} ${t("dv.installed")}`
+                    : `${t("dv.download")} ${tool.name}`
+                }
                 onClick={() => {
-                  if (!tools[t.id]) void window.api.openExternal(t.url);
+                  if (!tools[tool.id]) void window.api.openExternal(tool.url);
                 }}
               >
-                {tools[t.id] ? "●" : "○"} {t.name}
-                {!tools[t.id] && " ↗"}
+                {tools[tool.id] ? "●" : "○"} {tool.name}
+                {!tools[tool.id] && " ↗"}
               </span>
             ))}
           </div>
@@ -176,7 +317,7 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
           {/* Docker */}
           <div className="dv-section">
             <div className="dv-heading">
-              Docker {detect.dockerfile ? "· Dockerfile detectado" : ""}
+              Docker {detect.dockerfile ? t("dv.dockerDetected") : ""}
               {detect.compose ? ` · ${detect.compose}` : ""}
             </div>
             <div className="dv-actions">
@@ -230,55 +371,160 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
               >
                 ps
               </button>
+              <button
+                className="dv-btn"
+                disabled={!tools.docker}
+                onClick={() => run("docker images")}
+              >
+                images
+              </button>
               {!detect.dockerfile && detect.hasPackageJson && (
                 <button
                   className="dv-btn gen"
                   onClick={() =>
-                    void generate("Dockerfile", DOCKERFILE_TEMPLATE, "Dockerfile (Node)")
+                    void generate("Dockerfile", DOCKERFILE_NODE_TEMPLATE, "Dockerfile (Node)")
                   }
                 >
-                  + Generar Dockerfile
+                  {t("dv.gen")} Dockerfile (Node)
+                </button>
+              )}
+              {!detect.dockerfile && detect.hasPython && (
+                <button
+                  className="dv-btn gen"
+                  onClick={() =>
+                    void generate("Dockerfile", DOCKERFILE_PY_TEMPLATE, "Dockerfile (Python)")
+                  }
+                >
+                  {t("dv.gen")} Dockerfile (Python)
+                </button>
+              )}
+              {detect.dockerfile && !detect.dockerignore && (
+                <button
+                  className="dv-btn gen"
+                  onClick={() =>
+                    void generate(".dockerignore", DOCKERIGNORE_TEMPLATE, ".dockerignore")
+                  }
+                >
+                  {t("dv.gen")} .dockerignore
+                </button>
+              )}
+              {detect.dockerfile && !detect.compose && (
+                <button
+                  className="dv-btn gen"
+                  onClick={() =>
+                    void generate(
+                      "docker-compose.yml",
+                      composeTemplate(projectName),
+                      "docker-compose.yml",
+                    )
+                  }
+                >
+                  {t("dv.gen")} compose
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Kubernetes */}
+          <div className="dv-section">
+            <div className="dv-heading">
+              Kubernetes
+              {detect.k8sDir
+                ? ` ${t("dv.k8sFolder")} ${detect.k8sDir}/`
+                : ` ${t("dv.noManifests")}`}
+            </div>
+            <div className="dv-actions">
+              {detect.k8sDir && (
+                <>
+                  <button
+                    className="dv-btn"
+                    disabled={!tools.kubectl}
+                    onClick={() => run(`kubectl apply -f ${detect.k8sDir}/`)}
+                  >
+                    ▶ apply
+                  </button>
+                  <button
+                    className="dv-btn"
+                    disabled={!tools.kubectl}
+                    onClick={() => run(`kubectl delete -f ${detect.k8sDir}/`)}
+                  >
+                    ■ delete
+                  </button>
+                </>
+              )}
+              <button
+                className="dv-btn"
+                disabled={!tools.kubectl}
+                onClick={() => run("kubectl get pods")}
+              >
+                get pods
+              </button>
+              <button
+                className="dv-btn"
+                disabled={!tools.kubectl}
+                onClick={() => run("kubectl get services")}
+              >
+                get services
+              </button>
+              <button
+                className="dv-btn"
+                disabled={!tools.kubectl}
+                onClick={() => run("kubectl get deployments")}
+              >
+                get deployments
+              </button>
+              {!detect.k8sDir && (
+                <button
+                  className="dv-btn gen"
+                  onClick={() =>
+                    void generate(
+                      "k8s\\deployment.yaml",
+                      k8sTemplate(projectName),
+                      "Manifests de Kubernetes (Deployment + Service)",
+                    )
+                  }
+                >
+                  {t("dv.gen")} manifests (k8s/)
                 </button>
               )}
             </div>
           </div>
 
           {/* Terraform */}
-          {detect.terraform && (
-            <div className="dv-section">
-              <div className="dv-heading">Terraform · archivos .tf detectados</div>
-              <div className="dv-actions">
-                <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform init")}>
-                  init
-                </button>
-                <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform plan")}>
-                  plan
-                </button>
-                <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform apply")}>
-                  apply
-                </button>
-              </div>
+          <div className="dv-section">
+            <div className="dv-heading">
+              Terraform{" "}
+              {detect.terraform ? t("dv.tfDetected") : t("dv.noTf")}
             </div>
-          )}
-
-          {/* Kubernetes */}
-          {detect.k8sDir && (
-            <div className="dv-section">
-              <div className="dv-heading">Kubernetes · carpeta {detect.k8sDir}/</div>
-              <div className="dv-actions">
+            <div className="dv-actions">
+              {detect.terraform ? (
+                <>
+                  <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform init")}>
+                    init
+                  </button>
+                  <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform fmt")}>
+                    fmt
+                  </button>
+                  <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform validate")}>
+                    validate
+                  </button>
+                  <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform plan")}>
+                    plan
+                  </button>
+                  <button className="dv-btn" disabled={!tools.terraform} onClick={() => run("terraform apply")}>
+                    apply
+                  </button>
+                </>
+              ) : (
                 <button
-                  className="dv-btn"
-                  disabled={!tools.kubectl}
-                  onClick={() => run(`kubectl apply -f ${detect.k8sDir}/`)}
+                  className="dv-btn gen"
+                  onClick={() => void generate("main.tf", TF_TEMPLATE, "main.tf")}
                 >
-                  apply
+                  {t("dv.gen")} main.tf
                 </button>
-                <button className="dv-btn" disabled={!tools.kubectl} onClick={() => run("kubectl get pods")}>
-                  get pods
-                </button>
-              </div>
+              )}
             </div>
-          )}
+          </div>
 
           {/* CI/CD */}
           <div className="dv-section">
@@ -286,20 +532,24 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
               CI/CD
               {detect.workflows.length
                 ? ` · ${detect.workflows.length} workflow(s): ${detect.workflows.join(", ")}`
-                : " · sin workflows"}
+                : ` ${t("dv.noWorkflows")}`}
             </div>
             <div className="dv-actions">
               {!detect.workflows.includes("ci.yml") && (
                 <button
                   className="dv-btn gen"
                   onClick={() =>
-                    void generate(".github\\workflows\\ci.yml", CI_TEMPLATE, "Workflow de CI")
+                    void generate(
+                      ".github\\workflows\\ci.yml",
+                      detect.hasPackageJson ? CI_NODE_TEMPLATE : CI_PY_TEMPLATE,
+                      `Workflow de CI (${detect.hasPackageJson ? "Node" : "Python"})`,
+                    )
                   }
                 >
-                  + Generar CI (GitHub Actions)
+                  {t("dv.gen")} CI ({detect.hasPackageJson ? "Node" : "Python"})
                 </button>
               )}
-              {!detect.workflows.includes("release.yml") && (
+              {!detect.workflows.includes("release.yml") && detect.hasPackageJson && (
                 <button
                   className="dv-btn gen"
                   onClick={() =>
@@ -310,7 +560,7 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
                     )
                   }
                 >
-                  + Generar Release (.exe por tag)
+                  {t("dv.gen")} Release (.exe)
                 </button>
               )}
               <button
@@ -320,12 +570,47 @@ export default function DevOpsPanel({ root, onClose, runInTerminal, onNotice }: 
               >
                 gh runs
               </button>
+              <button
+                className="dv-btn"
+                disabled={!tools.gh}
+                onClick={() => run("gh pr list")}
+              >
+                gh prs
+              </button>
+              <button
+                className="dv-btn"
+                disabled={!tools.gh}
+                onClick={() => run("gh repo view --web")}
+              >
+                repo ↗
+              </button>
             </div>
           </div>
+
+          {/* proyecto */}
+          {!detect.hasGitignore && (
+            <div className="dv-section">
+              <div className="dv-heading">{t("dv.noGitignore")}</div>
+              <div className="dv-actions">
+                <button
+                  className="dv-btn gen"
+                  onClick={() =>
+                    void generate(
+                      ".gitignore",
+                      detect.hasPackageJson ? GITIGNORE_NODE_TEMPLATE : GITIGNORE_PY_TEMPLATE,
+                      ".gitignore",
+                    )
+                  }
+                >
+                  {t("dv.gen")} .gitignore ({detect.hasPackageJson ? "Node" : "Python"})
+                </button>
+              </div>
+            </div>
+          )}
         </div>
         <div className="modal-actions">
           <button className="modal-btn" onClick={onClose}>
-            Cerrar
+            {t("dv.close")}
           </button>
         </div>
       </div>

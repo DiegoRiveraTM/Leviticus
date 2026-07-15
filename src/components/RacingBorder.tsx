@@ -4,6 +4,17 @@ interface Props {
   active: boolean;
 }
 
+// color del acento del tema activo como [r, g, b]
+function accentRgb(): [number, number, number] {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue("--accent")
+    .trim();
+  const m = /^#?([0-9a-f]{6})$/i.exec(v);
+  if (!m) return [80, 140, 255];
+  const n = parseInt(m[1], 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
 export default function RacingBorder({ active }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
@@ -29,6 +40,13 @@ export default function RacingBorder({ active }: Props) {
     canvas.height = parent.offsetHeight;
     const ctx = canvas.getContext("2d")!;
 
+    // sigue al tema activo; se recolorea al vuelo con el evento lv-theme
+    let [r, g, b] = accentRgb();
+    const onTheme = () => {
+      [r, g, b] = accentRgb();
+    };
+    window.addEventListener("lv-theme", onTheme);
+
     function pointOnRect(p: number, w: number, h: number) {
       const perim = 2 * (w + h);
       p = ((p % perim) + perim) % perim;
@@ -53,7 +71,7 @@ export default function RacingBorder({ active }: Props) {
         const pt = pointOnRect(p, w, h);
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, (1 - t) * 2 + 0.3, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(80,140,255,${(1 - t) * 0.7})`;
+        ctx.fillStyle = `rgba(${r},${g},${b},${(1 - t) * 0.7})`;
         ctx.fill();
       }
 
@@ -66,9 +84,9 @@ export default function RacingBorder({ active }: Props) {
         head.y,
         6,
       );
-      grd.addColorStop(0, "rgba(180,210,255,1)");
-      grd.addColorStop(0.4, "rgba(80,140,255,0.8)");
-      grd.addColorStop(1, "rgba(26,86,255,0)");
+      grd.addColorStop(0, "rgba(255,255,255,0.95)");
+      grd.addColorStop(0.4, `rgba(${r},${g},${b},0.85)`);
+      grd.addColorStop(1, `rgba(${r},${g},${b},0)`);
       ctx.beginPath();
       ctx.arc(head.x, head.y, 6, 0, Math.PI * 2);
       ctx.fillStyle = grd;
@@ -79,7 +97,10 @@ export default function RacingBorder({ active }: Props) {
     }
 
     draw();
-    return () => cancelAnimationFrame(animRef.current);
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      window.removeEventListener("lv-theme", onTheme);
+    };
   }, [active]);
 
   return (

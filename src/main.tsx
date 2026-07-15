@@ -4,6 +4,12 @@ import App from "./App";
 import { initSpaceBg } from "./SpaceBg";
 import "./App.css";
 
+// tema guardado ANTES del primer render: la intro ya sale coloreada
+document.documentElement.setAttribute(
+  "data-theme",
+  localStorage.getItem("lv-theme") ?? "azul",
+);
+
 initSpaceBg();
 
 ReactDOM.createRoot(document.getElementById("root")!).render(

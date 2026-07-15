@@ -31,10 +31,10 @@
     width: 560px;
     height: 560px;
     border-radius: 50%;
-    border: 1px solid rgba(10, 132, 255, 0.18);
+    border: 1px solid var(--accent-ring);
     box-shadow:
-        0 0 80px rgba(10, 132, 255, 0.12),
-        inset 0 0 80px rgba(10, 132, 255, 0.06);
+        0 0 80px var(--accent-soft),
+        inset 0 0 80px var(--accent-soft);
     animation: intro-spin 26s linear infinite;
 }
 
@@ -46,8 +46,8 @@
     width: 7px;
     height: 7px;
     border-radius: 50%;
-    background: #8ec2ff;
-    box-shadow: 0 0 16px 4px rgba(10, 132, 255, 0.8);
+    background: var(--accent-text);
+    box-shadow: 0 0 16px 4px color-mix(in srgb, var(--accent) 80%, transparent);
 }
 
 @keyframes intro-spin {
@@ -66,7 +66,7 @@
     font-size: 11px;
     font-weight: 650;
     letter-spacing: 0.55em;
-    color: rgba(142, 194, 255, 0.55);
+    color: color-mix(in srgb, var(--accent-text) 55%, transparent);
     margin-bottom: 18px;
     animation: intro-fade 1.2s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
@@ -76,11 +76,14 @@
     font-weight: 700;
     letter-spacing: 0.28em;
     margin-right: -0.28em;
-    background: linear-gradient(180deg, #ffffff 0%, #b8d4ff 55%, #4a8cff 100%);
+    background: linear-gradient(180deg,
+            #ffffff 0%,
+            var(--accent-text) 55%,
+            var(--accent) 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
-    text-shadow: 0 0 60px rgba(10, 132, 255, 0.35);
+    text-shadow: 0 0 60px color-mix(in srgb, var(--accent) 35%, transparent);
     animation: intro-fade 1.2s 0.15s cubic-bezier(0.25, 1, 0.5, 1) both;
 }
 
@@ -90,7 +93,7 @@
     margin: 22px auto 26px;
     background: linear-gradient(90deg,
             transparent 0%,
-            rgba(160, 200, 255, 0.7) 50%,
+            color-mix(in srgb, var(--accent-text) 70%, transparent) 50%,
             transparent 100%);
     background-size: 200% 100%;
     animation: intro-shimmer 3s ease-in-out infinite,

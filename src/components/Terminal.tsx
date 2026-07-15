@@ -22,6 +22,18 @@ function normalize(data: string): string {
   return data.replace(/\r?\n/g, "\r\n");
 }
 
+function cssVar(name: string, fallback: string): string {
+  const v = getComputedStyle(document.documentElement)
+    .getPropertyValue(name)
+    .trim();
+  return v || fallback;
+}
+
+// color del prompt según el tema activo, como secuencia truecolor "r;g;b"
+function promptColor(): string {
+  return cssVar("--term-prompt", "138 194 255").split(/[\s,]+/).join(";");
+}
+
 const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   { sessionId, cwd },
   ref,
@@ -34,6 +46,12 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   const runningRef = useRef(false);
   const cwdRef = useRef("");
   const hadProjectRef = useRef(false);
+  // valor actual de la prop cwd, para que el montaje (async) lea el más nuevo
+  const cwdPropRef = useRef(cwd);
+  cwdPropRef.current = cwd;
+  // ¿ya se imprimió el primer prompt? / ¿hay salida de comandos en pantalla?
+  const promptDrawnRef = useRef(false);
+  const hasContentRef = useRef(false);
 
   function shortCwd() {
     const parts = cwdRef.current.split(/[\\/]/).filter(Boolean);
@@ -41,8 +59,10 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   }
 
   function prompt() {
+    promptDrawnRef.current = true;
+    const c = promptColor();
     termRef.current?.write(
-      `\x1b[1;38;5;111m${shortCwd()}\x1b[0m \x1b[1;38;5;69m❯\x1b[0m `,
+      `\x1b[1;38;2;${c}m${shortCwd()}\x1b[0m \x1b[1;38;2;${c}m❯\x1b[0m `,
     );
   }
 
@@ -60,6 +80,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
     }
     historyRef.current.push(cmd);
     histIdxRef.current = historyRef.current.length;
+    hasContentRef.current = true;
 
     if (cmd.trim() === "clear" || cmd.trim() === "cls") {
       term.clear();
@@ -122,7 +143,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
         theme: {
           background: "#00000000",
           foreground: "#c8dcff",
-          cursor: "#0a84ff",
+          cursor: cssVar("--accent", "#0a84ff"),
           cursorAccent: "#02040a",
           selectionBackground: "#0a84ff44",
           black: "#0a0f1e",
@@ -147,6 +168,18 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       const resizeObserver = new ResizeObserver(() => {
         try {
           fit.fit();
+          // si el primer prompt se imprimió cuando el layout aún no tenía
+          // su tamaño real, quedó envuelto en varias líneas; mientras no
+          // haya salida de comandos es seguro redibujarlo limpio
+          if (
+            promptDrawnRef.current &&
+            !hasContentRef.current &&
+            !runningRef.current
+          ) {
+            term.reset();
+            prompt();
+            term.write(bufferRef.current);
+          }
         } catch {
           /* contenedor oculto */
         }
@@ -156,7 +189,10 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
 
       cleanups.push(
         window.api.onTermData((id, data) => {
-          if (id === sessionId) term.write(normalize(data));
+          if (id === sessionId) {
+            hasContentRef.current = true;
+            term.write(normalize(data));
+          }
         }),
       );
       cleanups.push(
@@ -239,8 +275,33 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       });
       cleanups.push(() => dataDisposable.dispose());
 
-      cwdRef.current = await window.api.termGetCwd(sessionId);
+      // al cambiar el tema se actualiza el cursor (App dispara "lv-theme")
+      const onTheme = () => {
+        term.options.theme = {
+          ...term.options.theme,
+          cursor: cssVar("--accent", "#0a84ff"),
+          selectionBackground: cssVar("--selection", "#0a84ff44"),
+        };
+      };
+      window.addEventListener("lv-theme", onTheme);
+      cleanups.push(() => window.removeEventListener("lv-theme", onTheme));
+
+      // fija el cwd inicial y recién entonces imprime el primer prompt:
+      // hacerlo en dos efectos separados corría getCwd y setCwd en paralelo
+      // y las escrituras intercaladas dejaban el prompt cortado
+      if (cwdPropRef.current) hadProjectRef.current = true;
+      cwdRef.current = await window.api.termSetCwd(
+        sessionId,
+        cwdPropRef.current ?? "~",
+      );
       if (disposed) return;
+      // re-medir: entre open() y este punto el layout pudo asentarse y el
+      // fit inicial haber corrido con el contenedor a medio acomodar
+      try {
+        fit.fit();
+      } catch {
+        /* contenedor oculto */
+      }
       prompt();
     })();
 
@@ -256,6 +317,8 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   useEffect(() => {
     if (cwd) hadProjectRef.current = true;
     else if (!hadProjectRef.current) return;
+    // terminal aún inicializándose: el montaje leerá cwdPropRef al final
+    if (!termRef.current) return;
 
     void (async () => {
       cwdRef.current = await window.api.termSetCwd(sessionId, cwd ?? "~");

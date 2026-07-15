@@ -24,6 +24,8 @@ declare global {
       renamePath: (oldPath: string, newPath: string) => Promise<boolean>
       deletePath: (path: string) => Promise<boolean>
       listFiles: (root: string) => Promise<string[]>
+      watchProject: (root: string) => Promise<void>
+      onFsChanged: (cb: () => void) => () => void
 
       searchInFiles: (
         root: string,
@@ -57,6 +59,7 @@ declare global {
         changes?: number
       }>
       gitStatus: (root: string) => Promise<Record<string, string>>
+      gitIgnored: (root: string) => Promise<string[]>
       gitBranches: (root: string) => Promise<string[]>
       gitLog: (root: string) => Promise<{ hash: string; msg: string }[]>
       gitScanSensitive: (

@@ -5,10 +5,39 @@
    ============================================================ */
 
 :root {
+  /* ---- tema (App.tsx pone data-theme en <html>) ---- */
   --accent: #0a84ff;
   --accent-soft: rgba(10, 132, 255, 0.16);
-  --glass-bg: rgba(16, 22, 44, 0.42);
-  --glass-bg-deep: rgba(10, 14, 30, 0.55);
+  --accent-text: #8ec2ff;
+  --accent-ring: rgba(10, 132, 255, 0.28);
+  --selection: rgba(10, 132, 255, 0.35);
+  --glass-rgb: 16 22 44;
+  --glass-deep-rgb: 8 12 28;
+  --frame-tint: rgba(30, 55, 140, 0.10);
+  --frame-line: rgba(190, 215, 255, 0.16);
+  --frame-glow: rgba(26, 86, 255, 0.05);
+  /* fondo estelar (SpaceBg.ts los lee): color de estrellas y nebulosas */
+  --star-rgb: 180, 210, 255;
+  --neb-1: 26, 86, 255;
+  --neb-2: 10, 40, 180;
+  --neb-3: 40, 60, 200;
+  --neb-4: 20, 70, 230;
+  /* color del prompt de la terminal (r g b) */
+  --term-prompt: 138 194 255;
+  /* icono de carpeta del explorador */
+  --folder-icon: rgba(122, 168, 255, 0.75);
+  /* opacidad del vidrio: la controla el usuario con el deslizador de la
+     barra de estado (App.tsx la escribe en el elemento raíz) */
+  --glass-alpha: 0.45;
+  --glass-bg: rgb(var(--glass-rgb) / var(--glass-alpha));
+  /* tinte más profundo para editor y terminal: mantiene el código legible
+     sin dejar de responder al mismo deslizador */
+  --glass-bg-deep: rgb(var(--glass-deep-rgb) / calc(var(--glass-alpha) + 0.1));
+  /* el desenfoque también sigue al deslizador: con el vidrio transparente
+     el fondo se ve nítido a través (si el blur fuera fijo, borraría las
+     estrellas y solo se percibiría un cambio de tono) */
+  --glass-blur: calc(6px + var(--glass-alpha) * 26px);
+  --glass-blur-soft: calc(3px + var(--glass-alpha) * 16px);
   --glass-border: rgba(255, 255, 255, 0.09);
   --hairline: rgba(255, 255, 255, 0.07);
   --text-1: rgba(255, 255, 255, 0.93);
@@ -22,6 +51,48 @@
     inset 0 1px 0 rgba(255, 255, 255, 0.09),
     inset 0 0 0 0.5px rgba(255, 255, 255, 0.04),
     0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+/* tema negro: monocromo, acento blanco-gris */
+:root[data-theme="negro"] {
+  --accent: #8a92a6;
+  --accent-soft: rgba(255, 255, 255, 0.10);
+  --accent-text: #d6dae2;
+  --accent-ring: rgba(255, 255, 255, 0.18);
+  --selection: rgba(255, 255, 255, 0.22);
+  --glass-rgb: 12 12 16;
+  --glass-deep-rgb: 6 6 10;
+  --frame-tint: rgba(120, 125, 140, 0.06);
+  --frame-line: rgba(255, 255, 255, 0.12);
+  --frame-glow: rgba(255, 255, 255, 0.03);
+  --star-rgb: 222, 226, 235;
+  --neb-1: 90, 95, 110;
+  --neb-2: 55, 60, 72;
+  --neb-3: 75, 80, 95;
+  --neb-4: 45, 50, 62;
+  --term-prompt: 214 218 226;
+  --folder-icon: rgba(205, 210, 220, 0.6);
+}
+
+/* tema rojo oscuro: carmesí profundo */
+:root[data-theme="rojo"] {
+  --accent: #c2273a;
+  --accent-soft: rgba(217, 45, 70, 0.16);
+  --accent-text: #ff8f9a;
+  --accent-ring: rgba(217, 45, 70, 0.32);
+  --selection: rgba(217, 45, 70, 0.35);
+  --glass-rgb: 34 10 14;
+  --glass-deep-rgb: 20 5 8;
+  --frame-tint: rgba(140, 25, 45, 0.10);
+  --frame-line: rgba(255, 190, 195, 0.14);
+  --frame-glow: rgba(220, 40, 60, 0.05);
+  --star-rgb: 255, 208, 200;
+  --neb-1: 190, 28, 48;
+  --neb-2: 120, 14, 32;
+  --neb-3: 160, 22, 42;
+  --neb-4: 140, 18, 55;
+  --term-prompt: 255 143 154;
+  --folder-icon: rgba(255, 145, 155, 0.7);
 }
 
 * {
@@ -70,7 +141,7 @@ pre {
 }
 
 ::selection {
-  background: rgba(10, 132, 255, 0.35);
+  background: var(--selection);
 }
 
 button {
@@ -101,13 +172,13 @@ button {
   overflow: hidden;
   color: var(--text-1);
   background: radial-gradient(120% 90% at 50% 0%,
-      rgba(30, 55, 140, 0.10) 0%,
+      var(--frame-tint) 0%,
       transparent 60%);
   /* contorno de vidrio del marco */
-  border: 1px solid rgba(190, 215, 255, 0.16);
+  border: 1px solid var(--frame-line);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.12),
-    inset 0 0 80px rgba(26, 86, 255, 0.05);
+    inset 0 0 80px var(--frame-glow);
 }
 
 /* tarjeta de vidrio base */
@@ -117,8 +188,8 @@ button {
 .bottom,
 .statusbar {
   background: var(--glass-bg);
-  backdrop-filter: blur(28px) saturate(1.7);
-  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(1.7);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--card-shadow);
@@ -128,6 +199,9 @@ button {
 
 .titlebar {
   position: relative;
+  /* por encima de .main: sin esto el menú desplegable queda tapado por el
+     sidebar (va después en el DOM y su backdrop-filter crea contexto) */
+  z-index: 30;
   height: 44px;
   display: flex;
   align-items: center;
@@ -195,6 +269,7 @@ button {
 
 /* acciones (ejecutar / guardar) */
 .titlebar-actions {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 2px;
@@ -242,6 +317,101 @@ button {
 .tb-btn.run:hover {
   background: rgba(48, 209, 88, 0.14);
   color: #5fee92;
+}
+
+.tb-btn.open {
+  background: rgba(255, 255, 255, 0.11);
+  color: var(--text-1);
+}
+
+/* ---------- menú desplegable de la barra de título ---------- */
+
+.tb-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 95;
+  min-width: 234px;
+  padding: 5px;
+  border-radius: 12px;
+  background: rgb(var(--glass-rgb) / 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.14),
+    0 18px 50px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(28px) saturate(1.6);
+  -webkit-backdrop-filter: blur(28px) saturate(1.6);
+  animation: modal-in 0.16s var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.tb-menu-item {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 550;
+  letter-spacing: -0.011em;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.tb-menu-item:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-1);
+}
+
+.tb-menu-item:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.tb-menu-item svg {
+  flex-shrink: 0;
+}
+
+.mi-kbd {
+  margin-left: auto;
+  padding-left: 14px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.tb-menu-sep {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--hairline);
+}
+
+.tb-menu-label {
+  padding: 4px 10px 2px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.theme-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+}
+
+.tb-menu-item.sel {
+  color: var(--text-1);
+  background: rgba(255, 255, 255, 0.05);
 }
 
 /* ---------- layout principal ---------- */
@@ -295,7 +465,7 @@ button {
 
 .splitter:hover::after,
 .splitter.dragging::after {
-  background: rgba(10, 132, 255, 0.55);
+  background: var(--accent);
 }
 
 .sidebar {
@@ -335,8 +505,8 @@ button {
 
 .side-switch button.on {
   background: var(--accent-soft);
-  color: #8ec2ff;
-  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.25);
+  color: var(--accent-text);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
 }
 
 .side-view {
@@ -371,7 +541,7 @@ button {
 }
 
 .sp-input:focus {
-  border-color: rgba(10, 132, 255, 0.55);
+  border-color: var(--accent);
 }
 
 .sp-input::placeholder {
@@ -396,7 +566,7 @@ button {
 
 .sp-replace-btn:hover {
   background: var(--accent-soft);
-  color: #8ec2ff;
+  color: var(--accent-text);
 }
 
 .sp-replace-btn:disabled {
@@ -435,7 +605,7 @@ button {
 .sp-file {
   font-size: 10.5px;
   font-weight: 650;
-  color: #8ec2ff;
+  color: var(--accent-text);
   padding: 3px 4px;
   white-space: nowrap;
   overflow: hidden;
@@ -476,23 +646,27 @@ button {
 }
 
 .sp-text mark {
-  background: rgba(10, 132, 255, 0.35);
+  background: var(--selection);
   color: #fff;
   border-radius: 2px;
   padding: 0 1px;
 }
 
-/* los paneles que hacen scroll constante (editor y terminal) no llevan
-   backdrop-filter: re-difuminar el fondo animado en cada frame traba el
-   scroll y deja artefactos; usan un fondo casi opaco en su lugar */
+/* editor y terminal también son de vidrio; llevan un desenfoque más
+   ligero que el resto porque hacen scroll constante sobre el fondo
+   animado y un blur alto ahí traba el desplazamiento */
+.editor-area,
+.bottom {
+  background: var(--glass-bg-deep);
+  backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.5);
+  -webkit-backdrop-filter: blur(var(--glass-blur-soft)) saturate(1.5);
+}
+
 .editor-area {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: rgba(8, 12, 28, 0.92);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .tabs {
@@ -591,9 +765,6 @@ button {
   flex-direction: column;
   flex-shrink: 0;
   overflow: hidden;
-  background: rgba(8, 12, 28, 0.92);
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
 }
 
 .panel-tabs {
@@ -622,9 +793,9 @@ button {
 }
 
 .panel-tab.active {
-  color: #8ec2ff;
+  color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.28);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
 }
 
 .terminal {
@@ -672,6 +843,28 @@ button {
   color: #fff;
 }
 
+/* ocultar el panel completo de terminal */
+.term-hide {
+  margin-left: auto;
+  width: 24px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s var(--ease), color 0.15s var(--ease);
+}
+
+.term-hide:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #ff8a80;
+}
+
 /* ---------- barra de estado ---------- */
 
 .statusbar {
@@ -693,9 +886,9 @@ button {
 }
 
 .status-item.accent {
-  color: #8ec2ff;
+  color: var(--accent-text);
   background: var(--accent-soft);
-  box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.25);
+  box-shadow: inset 0 0 0 1px var(--accent-ring);
   border-radius: 999px;
   padding: 2px 11px;
   font-size: 10.5px;
@@ -753,6 +946,48 @@ button {
   flex-shrink: 0;
 }
 
+/* control de opacidad del vidrio */
+.glass-ctl {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  flex-shrink: 0;
+  transition: color 0.16s var(--ease);
+}
+
+.glass-ctl:hover {
+  color: var(--text-2);
+}
+
+.glass-ctl input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 84px;
+  height: 3px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  outline: none;
+  cursor: pointer;
+}
+
+.glass-ctl input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: #cfe2ff;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.6),
+    0 1px 4px rgba(0, 0, 0, 0.5);
+  transition: transform 0.15s var(--ease), background 0.15s var(--ease);
+}
+
+.glass-ctl input[type="range"]::-webkit-slider-thumb:hover {
+  background: #fff;
+  transform: scale(1.15);
+}
+
 /* ---------- modal de vidrio ---------- */
 
 .modal-overlay {
@@ -783,8 +1018,8 @@ button {
   padding: 24px;
   border-radius: 18px;
   background: linear-gradient(160deg,
-      rgba(45, 65, 130, 0.32) 0%,
-      rgba(12, 16, 34, 0.78) 100%);
+      var(--accent-soft) 0%,
+      rgb(var(--glass-deep-rgb) / 0.85) 100%);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.18),
@@ -846,8 +1081,8 @@ button {
 }
 
 .modal-input:focus {
-  border-color: rgba(10, 132, 255, 0.55);
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.18);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 /* fila de rama: selector + crear */
@@ -855,7 +1090,7 @@ button {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #8ec2ff;
+  color: var(--accent-text);
   margin-bottom: 4px;
 }
 
@@ -1034,11 +1269,180 @@ button {
   border-color: transparent;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.25),
-    0 4px 16px rgba(10, 132, 255, 0.4);
+    0 4px 16px var(--accent-soft);
 }
 
 .modal-btn.primary:hover {
-  background: #2492ff;
+  filter: brightness(1.15);
+}
+
+.modal-btn.danger {
+  background: rgba(225, 45, 70, 0.72);
+  border-color: transparent;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 4px 16px rgba(225, 45, 70, 0.35);
+}
+
+.modal-btn.danger:hover {
+  background: rgba(240, 60, 85, 0.92);
+}
+
+/* ---------- confirmación de borrado ---------- */
+
+.del-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #ff9d94;
+}
+
+.del-target {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid var(--hairline);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+.del-target .ft-icon {
+  color: var(--folder-icon);
+  flex-shrink: 0;
+}
+
+.del-name {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- popup de documentación ("¿atorado?") ---------- */
+
+.docs-hint {
+  position: fixed;
+  right: 22px;
+  bottom: 52px;
+  z-index: 80;
+  width: min(300px, 80vw);
+  padding: 13px 14px 11px;
+  border-radius: 14px;
+  background: rgb(var(--glass-rgb) / 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.13),
+    0 18px 50px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  animation: hint-in 0.3s var(--ease);
+  letter-spacing: -0.011em;
+}
+
+@keyframes hint-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.dh-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.dh-title {
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-1);
+}
+
+.dh-close {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-3);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.dh-close:hover {
+  background: rgba(255, 255, 255, 0.09);
+  color: var(--text-1);
+}
+
+.dh-body {
+  font-size: 11.5px;
+  color: var(--text-2);
+  margin-bottom: 10px;
+}
+
+.dh-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.dh-btn {
+  padding: 6px 10px;
+  font-size: 11.5px;
+  font-weight: 600;
+  text-align: left;
+  border-radius: 8px;
+  border: 1px solid var(--hairline);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-1);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background 0.16s var(--ease);
+}
+
+.dh-btn:hover {
+  background: rgba(255, 255, 255, 0.11);
+}
+
+.dh-btn.primary {
+  border-color: var(--accent-ring);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+
+.dh-btn.primary:hover {
+  background: var(--accent-ring);
+}
+
+.dh-dismiss {
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-size: 10px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.dh-dismiss:hover {
+  color: var(--text-2);
+  text-decoration: underline;
 }
 
 /* ---------- scrollbars ---------- */
@@ -1081,7 +1485,7 @@ button {
 .qo-box {
   width: min(560px, 88vw);
   border-radius: 14px;
-  background: rgba(16, 22, 44, 0.92);
+  background: rgb(var(--glass-rgb) / 0.92);
   border: 1px solid rgba(255, 255, 255, 0.14);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
@@ -1124,7 +1528,7 @@ button {
 }
 
 .qo-item.sel {
-  background: rgba(10, 132, 255, 0.22);
+  background: var(--accent-soft);
 }
 
 .qo-name {
@@ -1175,8 +1579,8 @@ button {
 
 .md-toggle.on {
   background: var(--accent-soft);
-  color: #8ec2ff;
-  border-color: rgba(10, 132, 255, 0.3);
+  color: var(--accent-text);
+  border-color: var(--accent-ring);
 }
 
 .md-preview-wrap {
@@ -1322,7 +1726,7 @@ button {
 .git-hash {
   font-size: 10.5px;
   font-family: 'JetBrains Mono', monospace;
-  color: #8ec2ff;
+  color: var(--accent-text);
   flex-shrink: 0;
 }
 
@@ -1338,6 +1742,13 @@ button {
 
 .modal.devops {
   width: min(520px, 90vw);
+}
+
+/* con más secciones el panel puede exceder la ventana: scroll interno */
+.modal.devops .modal-body {
+  max-height: 62vh;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .dv-tools {
@@ -1367,8 +1778,8 @@ button {
 }
 
 .dv-tool.missing:hover {
-  color: #8ec2ff;
-  border-color: rgba(10, 132, 255, 0.4);
+  color: var(--accent-text);
+  border-color: var(--accent-ring);
 }
 
 .dv-section {
@@ -1412,14 +1823,17 @@ button {
 }
 
 .dv-btn.gen {
-  border-color: rgba(10, 132, 255, 0.35);
+  border-color: var(--accent-ring);
   background: var(--accent-soft);
-  color: #8ec2ff;
+  color: var(--accent-text);
 }
 
 .dv-btn.gen:hover {
-  background: rgba(10, 132, 255, 0.28);
+  background: var(--accent-ring);
 }
 
-/* el fondo del editor lo define el tema "levitico" (sólido a propósito:
-   la transparencia total causaba texto fantasma al hacer scroll) */
+/* el tema "levitico" declara editor.background transparente para que se
+   vea el vidrio de .editor-area; el tinte de ese panel nunca baja de
+   ~0.2 de alfa (mínimo del deslizador + offset de --glass-bg-deep), y ese
+   fondo pintado evita el texto fantasma que aparecía al hacer scroll
+   cuando toda la cadena era transparente */

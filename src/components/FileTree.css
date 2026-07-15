@@ -79,8 +79,8 @@
 
 .filetree-empty:hover {
     color: rgba(255, 255, 255, 0.8);
-    border-color: rgba(10, 132, 255, 0.4);
-    background: rgba(10, 132, 255, 0.07);
+    border-color: var(--accent-ring);
+    background: var(--accent-soft);
 }
 
 .filetree-entries {
@@ -131,7 +131,7 @@
 }
 
 .ft-folder .ft-icon {
-    color: rgba(122, 168, 255, 0.75);
+    color: var(--folder-icon);
 }
 
 .ft-file .ft-icon {
@@ -174,6 +174,27 @@
     font-size: 7px;
 }
 
+/* ignorado por .gitignore: atenuado como en VS Code */
+.ft-ignored .ft-name {
+    color: rgba(230, 240, 255, 0.28);
+}
+
+.ft-ignored .ft-icon,
+.ft-ignored .ft-chevron {
+    opacity: 0.4;
+}
+
+.ft-ignored .ft-icon {
+    color: rgba(230, 240, 255, 0.35);
+    stroke: rgba(230, 240, 255, 0.35);
+}
+
+.ft-badge.ft-ignored-badge {
+    color: rgba(230, 240, 255, 0.22);
+    font-size: 10px;
+    font-weight: 500;
+}
+
 /* fila de creación/renombrado inline */
 .ft-edit-row {
     display: flex;
@@ -184,7 +205,7 @@
 }
 
 .ft-edit-row .ft-icon {
-    color: rgba(122, 168, 255, 0.75);
+    color: var(--folder-icon);
     flex-shrink: 0;
 }
 
@@ -195,11 +216,11 @@
     font-size: 12px;
     font-weight: 500;
     border-radius: 6px;
-    border: 1px solid rgba(10, 132, 255, 0.55);
+    border: 1px solid var(--accent);
     background: rgba(0, 0, 0, 0.35);
     color: rgba(255, 255, 255, 0.95);
     outline: none;
-    box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.15);
+    box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
 .ft-edit-input::placeholder {
@@ -213,7 +234,7 @@
     min-width: 175px;
     padding: 5px;
     border-radius: 11px;
-    background: rgba(16, 22, 44, 0.92);
+    background: rgb(var(--glass-rgb) / 0.92);
     border: 1px solid rgba(255, 255, 255, 0.13);
     box-shadow:
         inset 0 1px 0 rgba(255, 255, 255, 0.12),
@@ -259,7 +280,7 @@
 }
 
 .ctx-item:hover {
-    background: rgba(10, 132, 255, 0.28);
+    background: var(--accent-ring);
     color: #fff;
 }
 
@@ -285,8 +306,8 @@
 
 .ft-folder.active {
     color: #fff;
-    background: rgba(10, 132, 255, 0.14);
-    box-shadow: inset 0 0 0 1px rgba(10, 132, 255, 0.22);
+    background: var(--accent-soft);
+    box-shadow: inset 0 0 0 1px var(--accent-ring);
 }
 
 .ft-file {

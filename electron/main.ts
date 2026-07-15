@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import path from 'node:path'
 import fs from 'node:fs'
 import os from 'node:os'
+import { watch, type FSWatcher } from 'chokidar'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -329,6 +330,36 @@ ipcMain.handle('term:dispose', (_, id: number) => {
   termSessions.delete(id)
 })
 
+// ---------- watcher del proyecto ----------
+// avisa al renderer de cualquier cambio en disco (archivos generados por
+// DevOps, comandos de la terminal, editores externos…) para que el
+// explorador se refresque en tiempo real
+
+let projectWatcher: FSWatcher | null = null
+
+ipcMain.handle('fs:watch', (event, root: string) => {
+  void projectWatcher?.close()
+  projectWatcher = null
+  if (!root) return
+
+  const wc = event.sender
+  let timer: ReturnType<typeof setTimeout> | null = null
+  projectWatcher = watch(root, {
+    // carpetas ruidosas: vigilarlas satura el watcher (npm install genera
+    // decenas de miles de eventos) y el explorador igual las colapsa
+    ignored: /(^|[\\/])(node_modules|\.git|dist|dist-electron|build|\.venv|venv|__pycache__)([\\/]|$)/,
+    ignoreInitial: true,
+    depth: 8,
+  })
+  projectWatcher.on('all', () => {
+    // debounce: una ráfaga de cambios = un solo refresco
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (!wc.isDestroyed()) wc.send('fs:changed')
+    }, 300)
+  })
+})
+
 // ---------- Git ----------
 
 function runGit(args: string[], cwd: string) {
@@ -434,6 +465,20 @@ ipcMain.handle('git:status', (_, root: string) => {
       : 'M'
   }
   return map
+})
+
+// rutas ignoradas por .gitignore (git las colapsa por carpeta): el
+// explorador las atenúa para distinguirlas de lo que sí se trackea
+ipcMain.handle('git:ignored', (_, root: string) => {
+  const res = runGit(['status', '--porcelain', '--ignored'], root)
+  const list: string[] = []
+  if (!res.ok) return list
+  for (const line of res.out.split('\n')) {
+    if (!line.startsWith('!!')) continue
+    const rel = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\/$/, '')
+    list.push(path.join(root, rel.replace(/\//g, path.sep)))
+  }
+  return list
 })
 
 // ---------- Métricas del sistema ----------

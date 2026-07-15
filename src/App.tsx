@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import FileTree from "./components/FileTree";
 import Editor, { type MonacoEditorInstance } from "./components/Editor";
 import StatusExtras from "./components/StatusExtras";
@@ -7,9 +7,28 @@ import IntroScreen from "./components/IntroScreen";
 import QuickOpen from "./components/QuickOpen";
 import SearchPanel from "./components/SearchPanel";
 import DevOpsPanel from "./components/DevOpsPanel";
+import DocsHint, { type DocsHintData } from "./components/DocsHint";
 import { MarkdownView, ImageView } from "./components/Preview";
 import { getFileLanguage } from "./languages";
+import { I18nContext, translate, type Lang, type StrKey } from "./i18n";
 import "./App.css";
+
+type ThemeId = "azul" | "negro" | "rojo";
+
+const EDITOR_THEME: Record<ThemeId, string> = {
+  azul: "levitico",
+  negro: "levitico-negro",
+  rojo: "levitico-rojo",
+};
+
+const THEME_DOT: Record<ThemeId, string> = {
+  azul: "#0a84ff",
+  negro: "#26262e",
+  rojo: "#8c1522",
+};
+
+// tras cuántos ms sin teclear (con cambios sin guardar) se ofrece ayuda
+const STUCK_MS = 45000;
 
 interface Runner {
   tool: string;
@@ -124,9 +143,38 @@ function App() {
   );
   const [mdPreview, setMdPreview] = useState(false);
   const [closeConfirm, setCloseConfirm] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  // el panel de terminal se oculta sin desmontarlo: las sesiones siguen vivas
+  const [termVisible, setTermVisible] = useState(
+    () => localStorage.getItem("lv-term-visible") !== "0",
+  );
+  // opacidad del vidrio (0.10 transparente – 0.95 sólido)
+  const [glassAlpha, setGlassAlpha] = useState(() => {
+    const v = Number(localStorage.getItem("lv-glass-alpha"));
+    return v >= 0.1 && v <= 0.95 ? v : 0.45;
+  });
+  const [theme, setTheme] = useState<ThemeId>(() => {
+    const v = localStorage.getItem("lv-theme");
+    return v === "negro" || v === "rojo" ? v : "azul";
+  });
+  const [lang, setLang] = useState<Lang>(() =>
+    localStorage.getItem("lv-lang") === "en" ? "en" : "es",
+  );
+  const t = useCallback(
+    (key: StrKey, ...args: string[]) => translate(lang, key, ...args),
+    [lang],
+  );
+  // popup de documentación cuando el usuario lleva rato sin avanzar
+  const [docsHint, setDocsHint] = useState<DocsHintData | null>(null);
+  const [docsEnabled, setDocsEnabled] = useState(
+    () => localStorage.getItem("lv-docshint") !== "0",
+  );
+  const lastEditRef = useRef(0);
+  const hintShownRef = useRef(false);
 
   // git
   const [gitStatuses, setGitStatuses] = useState<Record<string, string>>({});
+  const [gitIgnored, setGitIgnored] = useState<string[]>([]);
   const [gitPanel, setGitPanel] = useState(false);
   const [gitInfo, setGitInfo] = useState<{
     installed: boolean;
@@ -213,24 +261,108 @@ function App() {
     localStorage.setItem("lv-autosave", autoSave ? "1" : "0");
   }, [autoSave]);
 
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      "--glass-alpha",
+      String(glassAlpha),
+    );
+    localStorage.setItem("lv-glass-alpha", String(glassAlpha));
+  }, [glassAlpha]);
+
+  useEffect(() => {
+    localStorage.setItem("lv-term-visible", termVisible ? "1" : "0");
+  }, [termVisible]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("lv-theme", theme);
+    // las terminales escuchan este evento para recolorear cursor/selección
+    window.dispatchEvent(new Event("lv-theme"));
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem("lv-lang", lang);
+  }, [lang]);
+
+  useEffect(() => {
+    localStorage.setItem("lv-docshint", docsEnabled ? "1" : "0");
+  }, [docsEnabled]);
+
+  // detector de "atore": si hay cambios sin guardar y pasa STUCK_MS sin
+  // teclear, se ofrece documentación del lenguaje del archivo activo
+  useEffect(() => {
+    if (!docsEnabled) return;
+    const timer = window.setInterval(() => {
+      const file = activeRef.current;
+      if (
+        !file ||
+        !lastEditRef.current ||
+        hintShownRef.current ||
+        !dirtyRef.current[file] ||
+        Date.now() - lastEditRef.current < STUCK_MS
+      )
+        return;
+      const { id, label } = getFileLanguage(file);
+      if (id === "plaintext") return;
+      let word = "";
+      const editor = editorRef.current;
+      const pos = editor?.getPosition();
+      const model = editor?.getModel();
+      if (pos && model) word = model.getWordAtPosition(pos)?.word ?? "";
+      hintShownRef.current = true;
+      setDocsHint({ langId: id, langLabel: label, word });
+    }, 5000);
+    return () => window.clearInterval(timer);
+  }, [docsEnabled]);
+
+  // el menú se cierra al hacer clic fuera; no puede ser con un backdrop
+  // position:fixed porque el backdrop-filter de la titlebar lo confinaría
+  // a la caja de la propia barra
+  useEffect(() => {
+    if (!menuOpen) return;
+    function onDown(e: PointerEvent) {
+      const el = e.target as HTMLElement | null;
+      if (el && !el.closest(".tb-menu") && !el.closest(".menu-toggle"))
+        setMenuOpen(false);
+    }
+    window.addEventListener("pointerdown", onDown);
+    return () => window.removeEventListener("pointerdown", onDown);
+  }, [menuOpen]);
+
   // ---------- git status ----------
 
   async function refreshGitStatuses() {
     const root = rootRef.current;
     if (!root) {
       setGitStatuses({});
+      setGitIgnored([]);
       return;
     }
     try {
-      setGitStatuses(await window.api.gitStatus(root));
+      const [statuses, ignored] = await Promise.all([
+        window.api.gitStatus(root),
+        window.api.gitIgnored(root),
+      ]);
+      setGitStatuses(statuses);
+      setGitIgnored(ignored);
     } catch {
       setGitStatuses({});
+      setGitIgnored([]);
     }
   }
 
   useEffect(() => {
     void refreshGitStatuses();
+    // vigilar el proyecto abierto (o detener el watcher si se cerró)
+    void window.api.watchProject(rootPath ?? "");
   }, [rootPath]);
+
+  // cambios en disco desde fuera del explorador (DevOps, terminal…)
+  useEffect(() => {
+    const off = window.api.onFsChanged(() => void refreshGitStatuses());
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     const off = window.api.onTermExit(() => void refreshGitStatuses());
@@ -443,13 +575,13 @@ function App() {
   async function handleRunFile() {
     const file = activeRef.current;
     if (!file) {
-      setNotice("Abre un archivo primero para poder ejecutarlo.");
+      setNotice(t("notice.openFileFirst"));
       return;
     }
     const { id, label } = getFileLanguage(file);
     const runner = RUNNERS[id];
     if (!runner) {
-      setNotice(`No hay un ejecutor configurado para ${label}.`);
+      setNotice(t("notice.noRunner", label));
       return;
     }
     await saveFile();
@@ -465,15 +597,13 @@ function App() {
   // y luego el script dev/start/serve del package.json
   async function handleRunProject() {
     if (!rootPath) {
-      setNotice("Abre la carpeta de un proyecto primero.");
+      setNotice(t("notice.openProjectFirst"));
       return;
     }
     const entries = await window.api.readDir(rootPath);
     const hasPkg = entries.some((e) => e.name === "package.json");
     if (!hasPkg) {
-      setNotice(
-        "No encontré un package.json en la raíz del proyecto. Usa la terminal para correr otros tipos de proyecto.",
-      );
+      setNotice(t("notice.noPkg"));
       return;
     }
     const nodeOk = await window.api.checkTool("node");
@@ -511,7 +641,7 @@ function App() {
   async function openGitPanel() {
     const root = rootRef.current;
     if (!root) {
-      setNotice("Abre la carpeta de un proyecto primero.");
+      setNotice(t("notice.openProjectFirst"));
       return;
     }
     const info = await window.api.gitInfo(root);
@@ -588,9 +718,7 @@ function App() {
     });
     if (!rest.length) {
       setSensWarning(null);
-      setNotice(
-        "Todos los archivos seleccionados contenían información sensible; no quedó nada para confirmar. Agrega esos archivos al .gitignore.",
-      );
+      setNotice(t("notice.allSensitive"));
       return;
     }
     doCommit(rest);
@@ -604,9 +732,7 @@ function App() {
     } else {
       const url = remoteUrl.trim();
       if (!url) {
-        setNotice(
-          "Pega la URL del repositorio de GitHub (crea uno vacío en github.com/new y copia la URL que termina en .git).",
-        );
+        setNotice(t("notice.pasteRepoUrl"));
         return;
       }
       gitRun(`git remote add origin ${url}; git push -u origin ${branch}`);
@@ -677,6 +803,7 @@ function App() {
   const isMarkdown = langInfo?.id === "markdown";
 
   return (
+    <I18nContext.Provider value={{ lang, t }}>
     <div className="ide">
       {intro && <IntroScreen onEnter={() => setIntro(false)} />}
 
@@ -684,7 +811,7 @@ function App() {
         <div className="titlebar-actions">
           <button
             className="tb-btn run"
-            title="Ejecutar archivo actual"
+            title={t("tip.runFile")}
             onClick={handleRunFile}
           >
             <svg width="10" height="12" viewBox="0 0 10 12">
@@ -693,7 +820,7 @@ function App() {
           </button>
           <button
             className="tb-btn run"
-            title="Correr proyecto (npm install + dev)"
+            title={t("tip.runProject")}
             onClick={handleRunProject}
           >
             <svg width="13" height="12" viewBox="0 0 13 12">
@@ -701,90 +828,204 @@ function App() {
             </svg>
           </button>
           <button
-            className="tb-btn"
-            title="Guardar (Ctrl+S)"
-            onClick={() => void saveFile()}
-            disabled={!activeFile}
-          >
-            <svg
-              width="12"
-              height="12"
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            >
-              <path d="M6 1v6.5M3.5 5.5 6 8l2.5-2.5M1.5 10.5h9" />
-            </svg>
-          </button>
-          <button
-            className="tb-btn"
-            title="Git · confirmar y subir a GitHub"
-            onClick={() => void openGitPanel()}
-          >
-            <svg
-              width="12"
-              height="13"
-              viewBox="0 0 12 13"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.2"
-            >
-              <circle cx="3" cy="3" r="1.7" />
-              <circle cx="3" cy="10" r="1.7" />
-              <circle cx="9" cy="4.5" r="1.7" />
-              <path d="M3 4.7v3.6M9 6.2c0 2.2-2.8 2.4-4.5 2.5" />
-            </svg>
-          </button>
-          <button
-            className="tb-btn"
-            title="DevOps · Docker, CI/CD, Terraform, Kubernetes"
-            onClick={() => {
-              if (!rootPath) setNotice("Abre la carpeta de un proyecto primero.");
-              else setDevops(true);
-            }}
+            className={`tb-btn menu-toggle ${menuOpen ? "open" : ""}`}
+            title={t("tip.menu")}
+            onClick={() => setMenuOpen((v) => !v)}
           >
             <svg
               width="13"
-              height="13"
-              viewBox="0 0 14 14"
-              fill="none"
+              height="11"
+              viewBox="0 0 13 11"
               stroke="currentColor"
-              strokeWidth="1.2"
-              strokeLinejoin="round"
+              strokeWidth="1.3"
+              strokeLinecap="round"
             >
-              <path d="M7 1.5 13 4.5 7 7.5 1 4.5z" />
-              <path d="M1 7.5l6 3 6-3" opacity="0.65" />
-              <path d="M1 10.5l6 3 6-3" opacity="0.35" />
+              <path d="M1 1.5h11M1 5.5h11M1 9.5h11" />
             </svg>
           </button>
-          {previewUrl && (
-            <button
-              className="tb-btn preview"
-              title={`Abrir vista previa · ${previewUrl}`}
-              onClick={() => void window.api.openExternal(previewUrl)}
-            >
-              <svg
-                width="13"
-                height="13"
-                viewBox="0 0 14 14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.2"
-              >
-                <circle cx="7" cy="7" r="5.5" />
-                <path d="M1.5 7h11M7 1.5c2 1.9 2 9.1 0 11-2-1.9-2-9.1 0-11z" />
-              </svg>
-            </button>
+          {menuOpen && (
+            <div className="tb-menu">
+                <button
+                  className="tb-menu-item"
+                  disabled={!activeFile}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void saveFile();
+                  }}
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 12 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M6 1v6.5M3.5 5.5 6 8l2.5-2.5M1.5 10.5h9" />
+                  </svg>
+                  <span>{t("menu.save")}</span>
+                  <span className="mi-kbd">Ctrl+S</span>
+                </button>
+                <button
+                  className="tb-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    void openGitPanel();
+                  }}
+                >
+                  <svg
+                    width="12"
+                    height="13"
+                    viewBox="0 0 12 13"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                  >
+                    <circle cx="3" cy="3" r="1.7" />
+                    <circle cx="3" cy="10" r="1.7" />
+                    <circle cx="9" cy="4.5" r="1.7" />
+                    <path d="M3 4.7v3.6M9 6.2c0 2.2-2.8 2.4-4.5 2.5" />
+                  </svg>
+                  <span>{t("menu.git")}</span>
+                </button>
+                <button
+                  className="tb-menu-item"
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (!rootPath) setNotice(t("notice.openProjectFirst"));
+                    else setDevops(true);
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinejoin="round"
+                  >
+                    <path d="M7 1.5 13 4.5 7 7.5 1 4.5z" />
+                    <path d="M1 7.5l6 3 6-3" opacity="0.65" />
+                    <path d="M1 10.5l6 3 6-3" opacity="0.35" />
+                  </svg>
+                  <span>{t("menu.devops")}</span>
+                </button>
+                {previewUrl && (
+                  <button
+                    className="tb-menu-item"
+                    title={previewUrl}
+                    onClick={() => {
+                      setMenuOpen(false);
+                      void window.api.openExternal(previewUrl);
+                    }}
+                  >
+                    <svg
+                      width="13"
+                      height="13"
+                      viewBox="0 0 14 14"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.2"
+                    >
+                      <circle cx="7" cy="7" r="5.5" />
+                      <path d="M1.5 7h11M7 1.5c2 1.9 2 9.1 0 11-2-1.9-2-9.1 0-11z" />
+                    </svg>
+                    <span>{t("menu.preview")}</span>
+                  </button>
+                )}
+                <div className="tb-menu-sep" />
+                <button
+                  className="tb-menu-item"
+                  disabled={termVisible}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setTermVisible(true);
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="11"
+                    viewBox="0 0 14 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="1" y="1" width="12" height="10" rx="2" />
+                    <path d="M3.5 4.5 6 6.5 3.5 8.5M7.5 8.5h3" />
+                  </svg>
+                  <span>{t("menu.openTerm")}</span>
+                </button>
+                <button
+                  className="tb-menu-item"
+                  disabled={!termVisible}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setTermVisible(false);
+                  }}
+                >
+                  <svg
+                    width="13"
+                    height="11"
+                    viewBox="0 0 14 12"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  >
+                    <rect x="1" y="1" width="12" height="10" rx="2" />
+                    <path d="M4.5 4 9.5 8M9.5 4 4.5 8" />
+                  </svg>
+                  <span>{t("menu.closeTerm")}</span>
+                </button>
+                <div className="tb-menu-sep" />
+                <div className="tb-menu-label">{t("menu.theme")}</div>
+                {(["azul", "negro", "rojo"] as const).map((tm) => (
+                  <button
+                    key={tm}
+                    className={`tb-menu-item ${theme === tm ? "sel" : ""}`}
+                    onClick={() => setTheme(tm)}
+                  >
+                    <span
+                      className="theme-dot"
+                      style={{ background: THEME_DOT[tm] }}
+                    />
+                    <span>{t(`theme.${tm}` as StrKey)}</span>
+                    {theme === tm && <span className="mi-kbd">✓</span>}
+                  </button>
+                ))}
+                <div className="tb-menu-sep" />
+                <div className="tb-menu-label">{t("menu.language")}</div>
+                <button
+                  className="tb-menu-item"
+                  onClick={() => setLang(lang === "es" ? "en" : "es")}
+                >
+                  <svg
+                    width="13"
+                    height="13"
+                    viewBox="0 0 14 14"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.1"
+                  >
+                    <circle cx="7" cy="7" r="5.5" />
+                    <path d="M1.5 7h11M7 1.5c2 1.9 2 9.1 0 11-2-1.9-2-9.1 0-11z" />
+                  </svg>
+                  <span>{lang === "es" ? "English" : "Español"}</span>
+                </button>
+              </div>
           )}
         </div>
         <div className="titlebar-drag" />
         <div className="win-controls">
           <button
             className="win-btn"
-            title="Pantalla completa (F11)"
+            title={t("tip.fullscreen")}
             onClick={() => window.api.winFullscreen()}
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round">
@@ -793,7 +1034,7 @@ function App() {
           </button>
           <button
             className="win-btn"
-            title="Minimizar"
+            title={t("tip.minimize")}
             onClick={() => window.api.winMinimize()}
           >
             <svg width="11" height="11" viewBox="0 0 11 11">
@@ -802,7 +1043,7 @@ function App() {
           </button>
           <button
             className="win-btn"
-            title="Maximizar"
+            title={t("tip.maximize")}
             onClick={() => window.api.winMaximize()}
           >
             <svg width="11" height="11" viewBox="0 0 11 11" fill="none">
@@ -811,7 +1052,7 @@ function App() {
           </button>
           <button
             className="win-btn close"
-            title="Cerrar"
+            title={t("tip.close")}
             onClick={() => window.api.winClose()}
           >
             <svg width="11" height="11" viewBox="0 0 11 11">
@@ -828,7 +1069,7 @@ function App() {
               <div className="side-switch">
                 <button
                   className={sidebarView === "files" ? "on" : ""}
-                  title="Explorador"
+                  title={t("tip.explorer")}
                   onClick={() => setSidebarView("files")}
                 >
                   <svg width="13" height="12" viewBox="0 0 16 14" fill="currentColor">
@@ -837,7 +1078,7 @@ function App() {
                 </button>
                 <button
                   className={sidebarView === "search" ? "on" : ""}
-                  title="Buscar en el proyecto (Ctrl+Shift+F)"
+                  title={t("tip.search")}
                   onClick={() => setSidebarView("search")}
                 >
                   <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
@@ -858,6 +1099,7 @@ function App() {
                   onFsChange={() => void refreshGitStatuses()}
                   onEntryRemoved={closeTab}
                   statuses={gitStatuses}
+                  ignored={gitIgnored}
                 />
               </div>
               <div
@@ -891,7 +1133,7 @@ function App() {
                 <span>{file.split(/[\\/]/).pop()}</span>
                 <button
                   className="tab-close"
-                  title="Cerrar (Ctrl+W)"
+                  title={t("tip.closeTab")}
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(file);
@@ -906,7 +1148,7 @@ function App() {
             {isMarkdown && (
               <button
                 className={`md-toggle ${mdPreview ? "on" : ""}`}
-                title="Vista previa de Markdown"
+                title={t("tip.mdPreview")}
                 onClick={() => setMdPreview((v) => !v)}
               >
                 <svg width="13" height="10" viewBox="0 0 14 10" fill="none" stroke="currentColor" strokeWidth="1.2">
@@ -924,9 +1166,14 @@ function App() {
             <Editor
               filePath={activeFile}
               content={activeFile ? contents[activeFile] ?? null : null}
+              themeName={EDITOR_THEME[theme]}
               onChange={(value) => {
                 const path = activeRef.current;
                 if (!path) return;
+                // volvió a teclear: se reinicia el detector de "atore"
+                lastEditRef.current = Date.now();
+                hintShownRef.current = false;
+                setDocsHint(null);
                 setContents((prev) => ({ ...prev, [path]: value }));
                 setDirty((prev) => ({ ...prev, [path]: true }));
                 if (autoSaveRef.current) {
@@ -949,10 +1196,14 @@ function App() {
 
       <div
         className={`splitter splitter-h ${dragging === "h" ? "dragging" : ""}`}
+        style={{ display: termVisible ? undefined : "none" }}
         onMouseDown={(e) => startDrag(e, "h")}
       />
 
-      <div className="bottom" style={{ height: termHeight }}>
+      <div
+        className="bottom"
+        style={{ height: termHeight, display: termVisible ? undefined : "none" }}
+      >
         <div className="panel-tabs">
           {termIds.map((id, i) => (
             <span
@@ -964,7 +1215,7 @@ function App() {
               {termIds.length > 1 && (
                 <button
                   className="term-close"
-                  title="Cerrar terminal"
+                  title={t("tip.closeTermTab")}
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTerm(id);
@@ -975,8 +1226,22 @@ function App() {
               )}
             </span>
           ))}
-          <button className="term-add" title="Nueva terminal" onClick={addTerm}>
+          <button className="term-add" title={t("tip.newTerm")} onClick={addTerm}>
             +
+          </button>
+          <button
+            className="term-hide"
+            title={t("tip.hideTermPanel")}
+            onClick={() => setTermVisible(false)}
+          >
+            <svg width="9" height="9" viewBox="0 0 10 10">
+              <path
+                d="M1.5 1.5l7 7M8.5 1.5l-7 7"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+              />
+            </svg>
           </button>
         </div>
         <div className="terminal">
@@ -1007,17 +1272,40 @@ function App() {
           Ln {cursor.line}, Col {cursor.col}
         </span>
         {activeFile && dirty[activeFile] && (
-          <span className="status-item">● sin guardar</span>
+          <span className="status-item">{t("status.unsaved")}</span>
         )}
         <button
           className={`auto-toggle ${autoSave ? "on" : ""}`}
-          title="Autoguardado"
+          title={t("tip.autosave")}
           onClick={() => setAutoSave((v) => !v)}
         >
           AUTO
         </button>
         <StatusExtras />
-        <span className="status-item">Levitico v0.2.0</span>
+        <div
+          className="glass-ctl"
+          title={`${t("tip.glass")} · ${Math.round(glassAlpha * 100)}%`}
+        >
+          <svg
+            width="11"
+            height="13"
+            viewBox="0 0 11 13"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.1"
+            strokeLinejoin="round"
+          >
+            <path d="M5.5 1.2C7.3 3.7 9.2 5.9 9.2 8.1a3.7 3.7 0 1 1-7.4 0C1.8 5.9 3.7 3.7 5.5 1.2z" />
+          </svg>
+          <input
+            type="range"
+            min={10}
+            max={95}
+            value={Math.round(glassAlpha * 100)}
+            onChange={(e) => setGlassAlpha(Number(e.target.value) / 100)}
+          />
+        </div>
+        <span className="status-item">Levitico v0.4.0</span>
       </div>
 
       {quickOpen && (
@@ -1040,10 +1328,8 @@ function App() {
       {closeConfirm && (
         <div className="modal-overlay">
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Cambios sin guardar</div>
-            <div className="modal-body">
-              Tienes archivos con cambios sin guardar. ¿Qué quieres hacer?
-            </div>
+            <div className="modal-title">{t("unsaved.title")}</div>
+            <div className="modal-body">{t("unsaved.body")}</div>
             <div className="modal-actions">
               <button
                 className="modal-btn primary"
@@ -1051,19 +1337,19 @@ function App() {
                   void saveAll().then(() => window.api.confirmClose());
                 }}
               >
-                Guardar todo y salir
+                {t("unsaved.saveExit")}
               </button>
               <button
                 className="modal-btn"
                 onClick={() => window.api.confirmClose()}
               >
-                Salir sin guardar
+                {t("unsaved.exit")}
               </button>
               <button
                 className="modal-btn"
                 onClick={() => setCloseConfirm(false)}
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -1073,11 +1359,10 @@ function App() {
       {missingTool && (
         <div className="modal-overlay" onClick={() => setMissingTool(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Herramienta no encontrada</div>
+            <div className="modal-title">{t("tool.title")}</div>
             <div className="modal-body">
-              Para ejecutar este archivo necesitas{" "}
-              <strong>{missingTool.name}</strong> y no está instalado en tu
-              sistema.
+              {t("tool.body1")} <strong>{missingTool.name}</strong>{" "}
+              {t("tool.body2")}
             </div>
             <div className="modal-actions">
               <button
@@ -1087,13 +1372,13 @@ function App() {
                   setMissingTool(null);
                 }}
               >
-                Descargar {missingTool.name} ↗
+                {t("tool.download")} {missingTool.name} ↗
               </button>
               <button
                 className="modal-btn"
                 onClick={() => setMissingTool(null)}
               >
-                Cancelar
+                {t("common.cancel")}
               </button>
             </div>
           </div>
@@ -1106,21 +1391,19 @@ function App() {
             {!gitInfo.repo ? (
               <>
                 <div className="modal-title">Git</div>
-                <div className="modal-body">
-                  Esta carpeta todavía no es un repositorio de Git.
-                </div>
+                <div className="modal-body">{t("git.notRepo")}</div>
                 <div className="modal-actions">
                   <button className="modal-btn primary" onClick={gitInit}>
-                    Inicializar repositorio
+                    {t("git.init")}
                   </button>
                   <button className="modal-btn" onClick={() => setGitPanel(false)}>
-                    Cancelar
+                    {t("common.cancel")}
                   </button>
                 </div>
               </>
             ) : gitLogList ? (
               <>
-                <div className="modal-title">Historial de commits</div>
+                <div className="modal-title">{t("git.history")}</div>
                 <div className="modal-body">
                   <div className="git-log">
                     {gitLogList.map((c) => (
@@ -1129,23 +1412,22 @@ function App() {
                         <span className="git-msg">{c.msg}</span>
                       </div>
                     ))}
-                    {!gitLogList.length && "Sin commits todavía."}
+                    {!gitLogList.length && t("git.noCommits")}
                   </div>
                 </div>
                 <div className="modal-actions">
                   <button className="modal-btn" onClick={() => setGitLogList(null)}>
-                    ← Volver
+                    {t("git.back")}
                   </button>
                 </div>
               </>
             ) : sensWarning ? (
               <>
                 <div className="modal-title sens-title">
-                  ⚠ Información sensible detectada
+                  {t("git.sensTitle")}
                 </div>
                 <div className="modal-body">
-                  Estos archivos parecen contener credenciales y estaban por
-                  entrar al commit:
+                  {t("git.sensBody")}
                   <div className="sens-list">
                     {sensWarning.map((w) => (
                       <div key={w.file} className="sens-item">
@@ -1160,19 +1442,19 @@ function App() {
                     className="modal-btn primary"
                     onClick={commitExcludingSensitive}
                   >
-                    Excluir y confirmar
+                    {t("git.sensExclude")}
                   </button>
                   <button
                     className="modal-btn"
                     onClick={() => doCommit(selectedRelFiles())}
                   >
-                    Confirmar de todos modos
+                    {t("git.sensAnyway")}
                   </button>
                   <button
                     className="modal-btn"
                     onClick={() => setSensWarning(null)}
                   >
-                    Cancelar
+                    {t("common.cancel")}
                   </button>
                 </div>
               </>
@@ -1202,7 +1484,7 @@ function App() {
                     </select>
                     <button
                       className="modal-btn mini"
-                      title="Crear rama nueva"
+                      title={t("git.tipNewBranch")}
                       onClick={() => setBranchMode((v) => !v)}
                     >
                       +
@@ -1216,7 +1498,7 @@ function App() {
                     </button>
                     <button
                       className="modal-btn mini"
-                      title="Historial de commits"
+                      title={t("git.tipHistory")}
                       onClick={() => void showGitLog()}
                     >
                       ≡
@@ -1226,7 +1508,7 @@ function App() {
                     <input
                       autoFocus
                       className="modal-input"
-                      placeholder="nombre de la rama nueva…"
+                      placeholder={t("git.branchPh")}
                       value={newBranch}
                       onChange={(e) => setNewBranch(e.target.value)}
                       onKeyDown={(e) => {
@@ -1258,7 +1540,7 @@ function App() {
                       ))}
                     </div>
                   ) : (
-                    "No hay cambios pendientes."
+                    t("git.noChanges")
                   )}
 
                   {gitInfo.remote ? (
@@ -1268,14 +1550,14 @@ function App() {
                   ) : (
                     <input
                       className="modal-input"
-                      placeholder="URL del repo de GitHub (https://github.com/usuario/repo.git)"
+                      placeholder={t("git.remotePh")}
                       value={remoteUrl}
                       onChange={(e) => setRemoteUrl(e.target.value)}
                     />
                   )}
                   <input
                     className="modal-input"
-                    placeholder="Mensaje del commit…"
+                    placeholder={t("git.msgPh")}
                     value={commitMsg}
                     onChange={(e) => setCommitMsg(e.target.value)}
                     onKeyDown={(e) => {
@@ -1289,10 +1571,10 @@ function App() {
                     onClick={() => void gitCommit()}
                     disabled={!selectedFiles.size}
                   >
-                    Confirmar ({selectedFiles.size})
+                    {t("git.commit")} ({selectedFiles.size})
                   </button>
                   <button className="modal-btn primary" onClick={gitPush}>
-                    Subir a GitHub ↗
+                    {t("git.push")}
                   </button>
                 </div>
               </>
@@ -1304,17 +1586,29 @@ function App() {
       {notice && (
         <div className="modal-overlay" onClick={() => setNotice(null)}>
           <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-title">Aviso</div>
+            <div className="modal-title">{t("notice.title")}</div>
             <div className="modal-body">{notice}</div>
             <div className="modal-actions">
               <button className="modal-btn" onClick={() => setNotice(null)}>
-                Entendido
+                {t("notice.ok")}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      {docsHint && (
+        <DocsHint
+          data={docsHint}
+          onClose={() => setDocsHint(null)}
+          onDisable={() => {
+            setDocsHint(null);
+            setDocsEnabled(false);
+          }}
+        />
+      )}
     </div>
+    </I18nContext.Provider>
   );
 }
 

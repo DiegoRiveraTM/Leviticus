@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 
 interface Match {
   file: string;
@@ -13,6 +14,7 @@ interface Props {
 }
 
 export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const [replacement, setReplacement] = useState("");
   const [results, setResults] = useState<Match[]>([]);
@@ -45,14 +47,10 @@ export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
   async function replaceAll() {
     if (!root || !query.trim()) return;
     const total = results.length;
-    if (
-      !window.confirm(
-        `¿Reemplazar ${total} coincidencia(s) de "${query}" por "${replacement}" en todo el proyecto?`,
-      )
-    )
+    if (!window.confirm(t("sp.confirm", String(total), query, replacement)))
       return;
     const count = await window.api.searchReplace(root, query, replacement);
-    setMessage(`✓ ${count} reemplazo(s) hechos`);
+    setMessage(t("sp.done", String(count)));
     onReplaced();
     void runSearch(query);
   }
@@ -82,7 +80,7 @@ export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
   if (!root) {
     return (
       <div className="search-panel">
-        <div className="sp-empty">Abre un proyecto para buscar en sus archivos.</div>
+        <div className="sp-empty">{t("sp.openProject")}</div>
       </div>
     );
   }
@@ -92,7 +90,7 @@ export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
       <input
         id="global-search-input"
         className="sp-input"
-        placeholder="Buscar en el proyecto…"
+        placeholder={t("sp.searchPh")}
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => {
@@ -102,13 +100,13 @@ export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
       <div className="sp-replace-row">
         <input
           className="sp-input"
-          placeholder="Reemplazar por…"
+          placeholder={t("sp.replacePh")}
           value={replacement}
           onChange={(e) => setReplacement(e.target.value)}
         />
         <button
           className="sp-replace-btn"
-          title="Reemplazar todo"
+          title={t("sp.replaceAllTip")}
           disabled={!results.length}
           onClick={() => void replaceAll()}
         >
@@ -117,12 +115,13 @@ export default function SearchPanel({ root, onOpenAt, onReplaced }: Props) {
       </div>
 
       {message && <div className="sp-message">{message}</div>}
-      {searching && <div className="sp-message">Buscando…</div>}
+      {searching && <div className="sp-message">{t("sp.searching")}</div>}
       {!searching && query.trim() && (
         <div className="sp-count">
           {results.length
-            ? `${results.length} resultado(s) en ${grouped.length} archivo(s)${results.length >= 500 ? " (máx.)" : ""}`
-            : "Sin resultados"}
+            ? t("sp.results", String(results.length), String(grouped.length)) +
+              (results.length >= 500 ? t("sp.max") : "")
+            : t("sp.noResults")}
         </div>
       )}
 

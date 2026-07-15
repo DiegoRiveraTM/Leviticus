@@ -24,6 +24,12 @@ contextBridge.exposeInMainWorld('api', {
   renamePath: (oldPath: string, newPath: string) => ipcRenderer.invoke('fs:rename', oldPath, newPath),
   deletePath: (path: string) => ipcRenderer.invoke('fs:delete', path),
   listFiles: (root: string) => ipcRenderer.invoke('fs:listFiles', root),
+  watchProject: (root: string) => ipcRenderer.invoke('fs:watch', root),
+  onFsChanged: (cb: () => void) => {
+    const listener = () => cb()
+    ipcRenderer.on('fs:changed', listener)
+    return () => ipcRenderer.off('fs:changed', listener)
+  },
 
   // búsqueda global
   searchInFiles: (root: string, query: string) =>
@@ -53,6 +59,7 @@ contextBridge.exposeInMainWorld('api', {
   // git
   gitInfo: (root: string) => ipcRenderer.invoke('git:info', root),
   gitStatus: (root: string) => ipcRenderer.invoke('git:status', root),
+  gitIgnored: (root: string) => ipcRenderer.invoke('git:ignored', root),
   gitBranches: (root: string) => ipcRenderer.invoke('git:branches', root),
   gitLog: (root: string) => ipcRenderer.invoke('git:log', root),
   gitScanSensitive: (root: string, files: string[]) =>

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useT } from "../i18n";
 
 interface Props {
   root: string | null;
@@ -24,6 +25,7 @@ function fuzzyScore(target: string, query: string): number {
 }
 
 export default function QuickOpen({ root, onClose, onPick }: Props) {
+  const { t } = useT();
   const [query, setQuery] = useState("");
   const [files, setFiles] = useState<string[]>([]);
   const [sel, setSel] = useState(0);
@@ -63,7 +65,7 @@ export default function QuickOpen({ root, onClose, onPick }: Props) {
         <input
           autoFocus
           className="qo-input"
-          placeholder="Buscar archivo por nombre…"
+          placeholder={t("qo.ph")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
@@ -96,7 +98,7 @@ export default function QuickOpen({ root, onClose, onPick }: Props) {
             );
           })}
           {!matches.length && (
-            <div className="qo-empty">Sin coincidencias</div>
+            <div className="qo-empty">{t("qo.empty")}</div>
           )}
         </div>
       </div>
