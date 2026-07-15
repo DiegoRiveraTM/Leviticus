@@ -23,7 +23,7 @@ export default function IntroScreen({ onEnter }: Props) {
         <div className="intro-shimmer" />
         <div className="intro-cta">Click To Start</div>
       </div>
-      <div className="intro-footer">v0.2.0</div>
+      <div className="intro-footer">v0.3.0</div>
     </div>
   );
 }

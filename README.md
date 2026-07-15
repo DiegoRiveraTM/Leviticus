@@ -1,6 +1,8 @@
 # Levitico
 
-> **Note**: This project was created for **personal use** and its code was **generated 100% with AI**. It doesn't aim to compete with any professional editor — it's an experiment in how far you can get building a real tool with AI alone.
+> **Note**: This project was created for **personal use** and its code was **generated 100% with AI**. It doesn't aim to compete with any professional editor.
+
+![Levitico](public/Intro.png)
 
 ## Features
 
