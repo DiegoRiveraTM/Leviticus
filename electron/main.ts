@@ -378,6 +378,9 @@ ipcMain.handle('git:info', (_, root: string) => {
   const branch = runGit(['branch', '--show-current'], root).out || 'main'
   const remote = runGit(['remote', 'get-url', 'origin'], root)
   const status = runGit(['status', '--porcelain'], root)
+  // un repo recién inicializado no tiene HEAD: sin esto, el push fallaba
+  // con "src refspec ... does not match any" sin pista de la causa
+  const hasCommits = runGit(['rev-parse', '--verify', 'HEAD'], root).ok
   const changes = status.ok
     ? status.out.split('\n').filter(l => l.trim()).length
     : 0
@@ -387,6 +390,7 @@ ipcMain.handle('git:info', (_, root: string) => {
     branch,
     remote: remote.ok ? remote.out : null,
     changes,
+    hasCommits,
   }
 })
 

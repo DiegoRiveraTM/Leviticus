@@ -204,7 +204,10 @@ export default function Editor({
         renderLineHighlight: "line",
         lineNumbers: "on",
         tabSize: 2,
-        wordWrap: "off",
+        // las líneas largas se envuelven al ancho visible del editor;
+        // con automaticLayout el punto de corte sigue al tamaño de la ventana
+        wordWrap: "bounded",
+        wordWrapColumn: 300,
         smoothScrolling: true,
         cursorBlinking: "smooth",
         cursorSmoothCaretAnimation: "on",

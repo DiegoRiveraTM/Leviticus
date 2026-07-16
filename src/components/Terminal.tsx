@@ -11,6 +11,7 @@ import "./Terminal.css";
 
 export interface TerminalHandle {
   runCommand: (command: string) => void;
+  isBusy: () => boolean;
 }
 
 interface Props {
@@ -52,6 +53,9 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   // ¿ya se imprimió el primer prompt? / ¿hay salida de comandos en pantalla?
   const promptDrawnRef = useRef(false);
   const hasContentRef = useRef(false);
+  // comando recibido antes de que la terminal terminara de crearse
+  // (fuentes, cwd): se ejecuta en cuanto esté lista en vez de perderse
+  const queuedRef = useRef<string | null>(null);
 
   function shortCwd() {
     const parts = cwdRef.current.split(/[\\/]/).filter(Boolean);
@@ -101,7 +105,11 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   useImperativeHandle(ref, () => ({
     runCommand(command: string) {
       const term = termRef.current;
-      if (!term || runningRef.current) return;
+      if (runningRef.current) return; // App busca una terminal libre antes
+      if (!term) {
+        queuedRef.current = command;
+        return;
+      }
       // descarta lo que hubiera escrito el usuario y ejecuta
       bufferRef.current = "";
       term.write("\r\x1b[K");
@@ -109,6 +117,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       term.write(command + "\r\n");
       void submit(command);
     },
+    isBusy: () => runningRef.current,
   }));
 
   useEffect(() => {
@@ -303,6 +312,12 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
         /* contenedor oculto */
       }
       prompt();
+      if (queuedRef.current) {
+        const cmd = queuedRef.current;
+        queuedRef.current = null;
+        term.write(cmd + "\r\n");
+        void submit(cmd);
+      }
     })();
 
     return () => {

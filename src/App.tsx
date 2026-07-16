@@ -182,6 +182,7 @@ function App() {
     branch?: string;
     remote?: string | null;
     changes?: number;
+    hasCommits?: boolean;
   } | null>(null);
   const [commitMsg, setCommitMsg] = useState("");
   const [remoteUrl, setRemoteUrl] = useState("");
@@ -199,6 +200,8 @@ function App() {
   const [activeTerm, setActiveTerm] = useState(1);
   const nextTermIdRef = useRef(2);
   const termRefs = useRef(new Map<number, TerminalHandle>());
+  // comandos destinados a terminales que todavía no terminan de montarse
+  const pendingCmdsRef = useRef(new Map<number, string>());
 
   const editorRef = useRef<MonacoEditorInstance | null>(null);
   const activeRef = useRef(activeFile);
@@ -361,7 +364,6 @@ function App() {
   useEffect(() => {
     const off = window.api.onFsChanged(() => void refreshGitStatuses());
     return off;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -551,13 +553,35 @@ function App() {
   // ---------- terminales ----------
 
   function runInActiveTerm(command: string) {
-    termRefs.current.get(activeTerm)?.runCommand(command);
+    // que la salida siempre sea visible: sin esto los comandos de Git y
+    // DevOps corrían en un panel oculto y parecía que el botón no hacía nada
+    setTermVisible(true);
+    const active = termRefs.current.get(activeTerm);
+    if (active && !active.isBusy()) {
+      active.runCommand(command);
+      return;
+    }
+    // terminal ocupada (npm run dev, un servidor…): antes el comando se
+    // descartaba en silencio; ahora se busca una libre o se abre una nueva
+    for (const [id, handle] of termRefs.current) {
+      if (!handle.isBusy()) {
+        setActiveTerm(id);
+        handle.runCommand(command);
+        return;
+      }
+    }
+    const id = addTerm();
+    setNotice(t("notice.termBusy"));
+    // la terminal nueva aún no montó: su handle encola el comando al crearse,
+    // así que se entrega en cuanto React la registre
+    pendingCmdsRef.current.set(id, command);
   }
 
-  function addTerm() {
+  function addTerm(): number {
     const id = nextTermIdRef.current++;
     setTermIds((prev) => [...prev, id]);
     setActiveTerm(id);
+    return id;
   }
 
   function closeTerm(id: number) {
@@ -674,7 +698,9 @@ function App() {
   }
 
   function gitInit() {
-    gitRun("git init");
+    // -b main: sin configuración global, git crea "master" y el push a
+    // repos de GitHub (que esperan main) confundía con errores de refspec
+    gitRun("git init -b main");
   }
 
   function selectedRelFiles(): string[] {
@@ -682,14 +708,19 @@ function App() {
   }
 
   function doCommit(files: string[]) {
-    const msg = (commitMsg.trim() || "Cambios desde Levitico").replace(/"/g, "'");
+    // comillas simples de PowerShell: el mensaje viaja literal, sin que
+    // $variables o acentos graves rompan el comando; las dobles se vuelven
+    // simples porque el parser de powershell.exe se las come al pasarlas
+    const msg = (commitMsg.trim() || "Cambios desde Levitico")
+      .replace(/"/g, "'")
+      .replace(/'/g, "''");
     setCommitMsg("");
     setSensWarning(null);
     const addCmd =
       files.length === changedFiles.length
         ? "git add -A"
-        : `git add -- ${files.map((f) => `"${f}"`).join(" ")}`;
-    gitRun(`${addCmd}; git commit -m "${msg}"`);
+        : `git add -- ${files.map((f) => `'${f.replace(/'/g, "''")}'`).join(" ")}`;
+    gitRun(`${addCmd}; git commit -m '${msg}'`);
   }
 
   // antes de confirmar se escanean los archivos en busca de API keys,
@@ -726,6 +757,12 @@ function App() {
 
   function gitPush() {
     if (!gitInfo?.branch) return;
+    // sin commits no hay rama que subir: git fallaba con
+    // "src refspec ... does not match any" aunque existiera main
+    if (!gitInfo.hasCommits) {
+      setNotice(t("notice.commitFirst"));
+      return;
+    }
     const branch = gitInfo.branch;
     if (gitInfo.remote) {
       gitRun(`git push -u origin ${branch}`);
@@ -1255,8 +1292,16 @@ function App() {
                 sessionId={id}
                 cwd={rootPath}
                 ref={(handle) => {
-                  if (handle) termRefs.current.set(id, handle);
-                  else termRefs.current.delete(id);
+                  if (handle) {
+                    termRefs.current.set(id, handle);
+                    const pending = pendingCmdsRef.current.get(id);
+                    if (pending) {
+                      pendingCmdsRef.current.delete(id);
+                      handle.runCommand(pending);
+                    }
+                  } else {
+                    termRefs.current.delete(id);
+                  }
                 }}
               />
             </div>
@@ -1305,7 +1350,7 @@ function App() {
             onChange={(e) => setGlassAlpha(Number(e.target.value) / 100)}
           />
         </div>
-        <span className="status-item">Levitico v0.4.0</span>
+        <span className="status-item">Levitico v0.5.0</span>
       </div>
 
       {quickOpen && (

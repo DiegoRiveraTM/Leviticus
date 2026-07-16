@@ -130,6 +130,14 @@ const STRINGS = {
     es: "Pega la URL del repositorio de GitHub (crea uno vacío en github.com/new y copia la URL que termina en .git).",
     en: "Paste the GitHub repository URL (create an empty one at github.com/new and copy the URL ending in .git).",
   },
+  "notice.commitFirst": {
+    es: "El repositorio todavía no tiene commits: confirma tus cambios antes de hacer push.",
+    en: "The repository has no commits yet: commit your changes before pushing.",
+  },
+  "notice.termBusy": {
+    es: "La terminal tiene un proceso en ejecución; el comando se abrió en una terminal nueva.",
+    en: "The terminal has a running process; the command was opened in a new terminal.",
+  },
   "notice.allSensitive": {
     es: "Todos los archivos seleccionados contenían información sensible; no quedó nada para confirmar. Agrega esos archivos al .gitignore.",
     en: "All selected files contained sensitive information; nothing was left to commit. Add those files to .gitignore.",

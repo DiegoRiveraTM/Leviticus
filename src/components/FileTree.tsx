@@ -121,7 +121,7 @@ interface TreeNodeProps {
   depth: number;
   version: number;
   activeFolder: string | null;
-  setActiveFolder: (path: string) => void;
+  setActiveFolder: (path: string | null) => void;
   onFileOpen: (path: string) => void;
   onContext: (entry: FileEntry, x: number, y: number) => void;
   onMove: (src: string, targetDir: string) => void;
@@ -370,10 +370,10 @@ export default function FileTree({
   }
 
   // carpeta destino: la del clic derecho, el padre si fue un archivo,
-  // o la carpeta activa / raíz si fue en el fondo
+  // o la raíz si el clic derecho fue en el fondo vacío
   function baseFor(entry: FileEntry | null): string | null {
     if (entry) return entry.isDirectory ? entry.path : parentOf(entry.path);
-    return activeFolder ?? rootPath;
+    return rootPath;
   }
 
   function startCreate(mode: "create-file" | "create-dir") {
@@ -555,6 +555,11 @@ export default function FileTree({
       ) : (
         <div
           className="filetree-entries"
+          onClick={(e) => {
+            // clic en el fondo vacío: se quita la selección de carpeta para
+            // que los botones de crear vuelvan a apuntar a la raíz
+            if (e.target === e.currentTarget) setActiveFolder(null);
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setCtxMenu({ x: e.clientX, y: e.clientY, entry: null });

@@ -57,6 +57,7 @@ declare global {
         branch?: string
         remote?: string | null
         changes?: number
+        hasCommits?: boolean
       }>
       gitStatus: (root: string) => Promise<Record<string, string>>
       gitIgnored: (root: string) => Promise<string[]>
