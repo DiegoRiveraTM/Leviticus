@@ -42,6 +42,9 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const bufferRef = useRef("");
+  // posición del cursor dentro del buffer: permite corregir con las
+  // flechas sin tener que borrar toda la línea
+  const cursorRef = useRef(0);
   const historyRef = useRef<string[]>([]);
   const histIdxRef = useRef(-1);
   const runningRef = useRef(false);
@@ -74,6 +77,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
     termRef.current?.write("\r\x1b[K");
     prompt();
     termRef.current?.write(bufferRef.current);
+    cursorRef.current = bufferRef.current.length;
   }
 
   async function submit(cmd: string) {
@@ -112,6 +116,7 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
       }
       // descarta lo que hubiera escrito el usuario y ejecuta
       bufferRef.current = "";
+      cursorRef.current = 0;
       term.write("\r\x1b[K");
       prompt();
       term.write(command + "\r\n");
@@ -234,18 +239,61 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
             {
               const cmd = bufferRef.current;
               bufferRef.current = "";
+              cursorRef.current = 0;
               void submit(cmd);
             }
             return;
-          case "\x7f": // backspace
-            if (bufferRef.current.length > 0) {
-              bufferRef.current = bufferRef.current.slice(0, -1);
-              term.write("\b \b");
+          case "\x7f": { // backspace: borra el carácter a la izquierda del cursor
+            const cur = cursorRef.current;
+            if (cur > 0) {
+              const tail = bufferRef.current.slice(cur);
+              bufferRef.current = bufferRef.current.slice(0, cur - 1) + tail;
+              cursorRef.current = cur - 1;
+              term.write("\b" + tail + " " + `\x1b[${tail.length + 1}D`);
             }
             return;
+          }
+          case "\x1b[3~": { // Supr: borra el carácter bajo el cursor
+            const cur = cursorRef.current;
+            if (cur < bufferRef.current.length) {
+              const tail = bufferRef.current.slice(cur + 1);
+              bufferRef.current = bufferRef.current.slice(0, cur) + tail;
+              term.write(tail + " " + `\x1b[${tail.length + 1}D`);
+            }
+            return;
+          }
+          case "\x1b[D": // flecha izquierda
+            if (cursorRef.current > 0) {
+              cursorRef.current--;
+              term.write("\x1b[D");
+            }
+            return;
+          case "\x1b[C": // flecha derecha
+            if (cursorRef.current < bufferRef.current.length) {
+              cursorRef.current++;
+              term.write("\x1b[C");
+            }
+            return;
+          case "\x1b[H": // Inicio
+          case "\x1b[1~":
+            if (cursorRef.current > 0) {
+              term.write(`\x1b[${cursorRef.current}D`);
+              cursorRef.current = 0;
+            }
+            return;
+          case "\x1b[F": // Fin
+          case "\x1b[4~": {
+            const jump = bufferRef.current.length - cursorRef.current;
+            if (jump > 0) {
+              term.write(`\x1b[${jump}C`);
+              cursorRef.current = bufferRef.current.length;
+            }
+            return;
+          }
           case "\x03": // Ctrl+C
             term.write("^C\r\n");
             bufferRef.current = "";
+            cursorRef.current = 0;
             prompt();
             return;
           case "\x0c": // Ctrl+L
@@ -272,12 +320,18 @@ const Terminal = forwardRef<TerminalHandle, Props>(function Terminal(
           default:
             if (data.startsWith("\x1b")) return; // otras secuencias de escape
             {
-              // texto imprimible (incluye pegado); nos quedamos con la primera línea
+              // texto imprimible (incluye pegado); nos quedamos con la primera
+              // línea y se inserta en la posición del cursor
               // eslint-disable-next-line no-control-regex
               const clean = data.split(/\r?\n/)[0].replace(/[\x00-\x1f]/g, "");
               if (clean) {
-                bufferRef.current += clean;
-                term.write(clean);
+                const cur = cursorRef.current;
+                const tail = bufferRef.current.slice(cur);
+                bufferRef.current =
+                  bufferRef.current.slice(0, cur) + clean + tail;
+                cursorRef.current = cur + clean.length;
+                term.write(clean + tail);
+                if (tail.length) term.write(`\x1b[${tail.length}D`);
               }
             }
         }

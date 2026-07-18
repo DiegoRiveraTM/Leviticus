@@ -204,6 +204,7 @@ function TreeNode(props: TreeNodeProps) {
             if (e.dataTransfer.types.includes("text/lev-path")) {
               e.preventDefault();
               e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
               setDropTarget(entry.path);
             }
           }}
@@ -236,6 +237,7 @@ function TreeNode(props: TreeNodeProps) {
 
   const status = entryIgnored ? undefined : statuses[entry.path];
   const statusClass = status ? STATUS_CLASS[status] ?? "" : "";
+  const fileDir = parentOf(entry.path);
   return (
     <div
       className={`ft-file ${entryIgnored ? "ft-ignored" : ""}`}
@@ -245,6 +247,26 @@ function TreeNode(props: TreeNodeProps) {
       onContextMenu={handleContext}
       draggable
       onDragStart={handleDragStart}
+      // soltar sobre un archivo lo mueve a la carpeta de ese archivo: así
+      // se puede sacar algo de una carpeta aunque no haya espacio vacío
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("text/lev-path")) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.dataTransfer.dropEffect = "move";
+          setDropTarget(fileDir);
+        }
+      }}
+      onDragLeave={() => {
+        if (dropTarget === fileDir) setDropTarget(null);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setDropTarget(null);
+        const src = e.dataTransfer.getData("text/lev-path");
+        if (src) onMove(src, fileDir);
+      }}
     >
       <FileIcon name={entry.name} />
       <span className={`ft-name ${statusClass}`}>{entry.name}</span>
@@ -465,7 +487,22 @@ export default function FileTree({
 
   return (
     <div className="filetree">
-      <div className="filetree-header">
+      <div
+        className="filetree-header"
+        // soltar en el encabezado del proyecto = mover a la raíz
+        onDragOver={(e) => {
+          if (rootPath && e.dataTransfer.types.includes("text/lev-path")) {
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "move";
+          }
+        }}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDropTarget(null);
+          const src = e.dataTransfer.getData("text/lev-path");
+          if (src && rootPath) void moveEntry(src, rootPath);
+        }}
+      >
         <span className="filetree-title" title={rootPath ?? undefined}>
           {rootPath ? lastSegment(rootPath) : "Explorer"}
         </span>
@@ -565,7 +602,10 @@ export default function FileTree({
             setCtxMenu({ x: e.clientX, y: e.clientY, entry: null });
           }}
           onDragOver={(e) => {
-            if (e.dataTransfer.types.includes("text/lev-path")) e.preventDefault();
+            if (e.dataTransfer.types.includes("text/lev-path")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "move";
+            }
           }}
           onDrop={(e) => {
             e.preventDefault();

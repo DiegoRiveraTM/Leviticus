@@ -367,6 +367,9 @@ function runGit(args: string[], cwd: string) {
   return {
     ok: r.status === 0,
     out: ((r.stdout ?? '') + (r.stderr ?? '')).trim(),
+    // sin trim: el porcelain de git usa el primer carácter como columna de
+    // estado (" M x") y recortar la primera línea desalineaba las rutas
+    raw: r.stdout ?? '',
   }
 }
 
@@ -456,7 +459,7 @@ ipcMain.handle('git:status', (_, root: string) => {
   const res = runGit(['status', '--porcelain', '-uall'], root)
   const map: Record<string, string> = {}
   if (!res.ok) return map
-  for (const line of res.out.split('\n')) {
+  for (const line of res.raw.split('\n')) {
     if (line.trim().length < 4) continue
     const code = line.slice(0, 2)
     let rel = line.slice(3).trim().replace(/^"|"$/g, '')
@@ -477,7 +480,7 @@ ipcMain.handle('git:ignored', (_, root: string) => {
   const res = runGit(['status', '--porcelain', '--ignored'], root)
   const list: string[] = []
   if (!res.ok) return list
-  for (const line of res.out.split('\n')) {
+  for (const line of res.raw.split('\n')) {
     if (!line.startsWith('!!')) continue
     const rel = line.slice(3).trim().replace(/^"|"$/g, '').replace(/\/$/, '')
     list.push(path.join(root, rel.replace(/\//g, path.sep)))

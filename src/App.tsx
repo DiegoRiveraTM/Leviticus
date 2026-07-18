@@ -679,6 +679,9 @@ function App() {
     setSelectedFiles(
       new Set(Object.keys(statuses).map((abs) => abs.slice(root.length + 1))),
     );
+    knownChangedRef.current = new Set(
+      Object.keys(statuses).map((abs) => abs.slice(root.length + 1)),
+    );
     setGitBranchList(info.repo ? await window.api.gitBranches(root) : []);
     setSensWarning(null);
     setBranchMode(false);
@@ -690,12 +693,46 @@ function App() {
   }
 
   // los comandos corren en la terminal integrada para que veas su salida;
-  // el `cd` dentro del comando solo afecta a ese proceso, no a tu terminal
-  function gitRun(command: string) {
+  // el `cd` dentro del comando solo afecta a ese proceso, no a tu terminal.
+  // keepOpen: commit y push dejan el panel abierto para encadenarlos
+  function gitRun(command: string, keepOpen = false) {
     const root = rootRef.current;
-    setGitPanel(false);
+    if (!keepOpen) setGitPanel(false);
     runInActiveTerm(root ? `cd "${root}"; ${command}` : command);
   }
+
+  // rutas relativas que ya se habían visto como cambiadas: al refrescar,
+  // lo nuevo entra seleccionado sin pisar lo que el usuario desmarcó
+  const knownChangedRef = useRef<Set<string>>(new Set());
+
+  async function refreshGitPanel() {
+    const root = rootRef.current;
+    if (!root) return;
+    const info = await window.api.gitInfo(root);
+    setGitInfo(info);
+    if (!info.repo) return;
+    const statuses = await window.api.gitStatus(root);
+    setGitStatuses(statuses);
+    const rels = Object.keys(statuses).map((abs) => abs.slice(root.length + 1));
+    setSelectedFiles((prev) => {
+      const next = new Set<string>();
+      for (const rel of rels) {
+        if (prev.has(rel) || !knownChangedRef.current.has(rel)) next.add(rel);
+      }
+      return next;
+    });
+    knownChangedRef.current = new Set(rels);
+    setGitBranchList(await window.api.gitBranches(root));
+  }
+
+  // mientras el panel está abierto se refresca solo: si renombraste algo,
+  // hiciste commit desde la terminal o cambió la rama, la lista no se
+  // queda congelada con rutas viejas que harían fallar el commit
+  useEffect(() => {
+    if (!gitPanel) return;
+    const timer = window.setInterval(() => void refreshGitPanel(), 2000);
+    return () => window.clearInterval(timer);
+  }, [gitPanel]);
 
   function gitInit() {
     // -b main: sin configuración global, git crea "master" y el push a
@@ -720,7 +757,8 @@ function App() {
       files.length === changedFiles.length
         ? "git add -A"
         : `git add -- ${files.map((f) => `'${f.replace(/'/g, "''")}'`).join(" ")}`;
-    gitRun(`${addCmd}; git commit -m '${msg}'`);
+    // el panel queda abierto para poder hacer push justo después
+    gitRun(`${addCmd}; git commit -m '${msg}'`, true);
   }
 
   // antes de confirmar se escanean los archivos en busca de API keys,
@@ -755,24 +793,30 @@ function App() {
     doCommit(rest);
   }
 
-  function gitPush() {
-    if (!gitInfo?.branch) return;
+  async function gitPush() {
+    const root = rootRef.current;
+    if (!root) return;
+    // info fresca: si acabas de confirmar tu primer commit, la copia en
+    // memoria todavía diría que el repo está vacío
+    const info = await window.api.gitInfo(root);
+    setGitInfo(info);
+    if (!info.repo || !info.branch) return;
     // sin commits no hay rama que subir: git fallaba con
     // "src refspec ... does not match any" aunque existiera main
-    if (!gitInfo.hasCommits) {
+    if (!info.hasCommits) {
       setNotice(t("notice.commitFirst"));
       return;
     }
-    const branch = gitInfo.branch;
-    if (gitInfo.remote) {
-      gitRun(`git push -u origin ${branch}`);
+    const branch = info.branch;
+    if (info.remote) {
+      gitRun(`git push -u origin ${branch}`, true);
     } else {
       const url = remoteUrl.trim();
       if (!url) {
         setNotice(t("notice.pasteRepoUrl"));
         return;
       }
-      gitRun(`git remote add origin ${url}; git push -u origin ${branch}`);
+      gitRun(`git remote add origin ${url}; git push -u origin ${branch}`, true);
     }
   }
 
@@ -1350,7 +1394,7 @@ function App() {
             onChange={(e) => setGlassAlpha(Number(e.target.value) / 100)}
           />
         </div>
-        <span className="status-item">Levitico v0.5.0</span>
+        <span className="status-item">Levitico v0.6.0</span>
       </div>
 
       {quickOpen && (
@@ -1618,8 +1662,17 @@ function App() {
                   >
                     {t("git.commit")} ({selectedFiles.size})
                   </button>
-                  <button className="modal-btn primary" onClick={gitPush}>
+                  <button
+                    className="modal-btn primary"
+                    onClick={() => void gitPush()}
+                  >
                     {t("git.push")}
+                  </button>
+                  <button
+                    className="modal-btn"
+                    onClick={() => setGitPanel(false)}
+                  >
+                    {t("common.close")}
                   </button>
                 </div>
               </>

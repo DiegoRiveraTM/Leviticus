@@ -57,6 +57,7 @@ const STRINGS = {
 
   // modales genéricos
   "common.cancel": { es: "Cancelar", en: "Cancel" },
+  "common.close": { es: "Cerrar", en: "Close" },
   "notice.title": { es: "Aviso", en: "Notice" },
   "notice.ok": { es: "Entendido", en: "Got it" },
 

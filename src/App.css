@@ -140,6 +140,16 @@ pre {
   letter-spacing: 0;
 }
 
+/* los tooltips de los botones de monaco ("Close (Escape)"…) aparecen
+   desplazados cuando la ventana tiene zoom: tapaban el botón y se comían
+   el clic; se ocultan por completo (el título nativo del botón no hace falta) */
+.context-view:has(> .workbench-hover-container),
+.workbench-hover-container,
+.workbench-hover-container * {
+  display: none !important;
+  pointer-events: none !important;
+}
+
 ::selection {
   background: var(--selection);
 }
